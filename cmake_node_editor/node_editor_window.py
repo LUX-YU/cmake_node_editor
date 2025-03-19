@@ -9,6 +9,7 @@ from PyQt6.QtWidgets import (
 
 from .node_scene import NodeScene, NodeItem
 from .creation_dialog import NodeCreationDialog
+import multiprocessing
 
 
 class NodeEditorWindow(QMainWindow):
@@ -426,7 +427,7 @@ class NodeEditorWindow(QMainWindow):
                 f"-DCMAKE_INSTALL_PREFIX={node_install_dir}"
             ]
             if generator:
-                cmd_config.insert(1, f"-G{generator}")
+                cmd_config.insert(1, f"-G {generator}")
 
             if toolchain_path:
                 cmd_config.append(f"-DCMAKE_TOOLCHAIN_FILE={toolchain_path}")
@@ -437,7 +438,7 @@ class NodeEditorWindow(QMainWindow):
             self.commands_queue.append((cmd_config, f"配置 {project_name}"))
 
             # 编译
-            cmd_build = ["cmake", "--build", node_build_dir, "--config", build_type]
+            cmd_build = ["cmake", "--build", node_build_dir, "--config", build_type, "--parallel", str(multiprocessing.cpu_count())]
             self.commands_queue.append((cmd_build, f"编译 {project_name}"))
 
             # 安装
