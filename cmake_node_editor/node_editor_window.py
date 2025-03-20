@@ -3,7 +3,7 @@ import multiprocessing
 from multiprocessing import Queue
 
 from PyQt6.QtCore import Qt, QThread, pyqtSignal
-from PyQt6.QtGui import QPainter
+from PyQt6.QtGui import QPainter, QWheelEvent, QPainter, QMouseEvent
 from PyQt6.QtWidgets import (
     QMainWindow, QDockWidget, QWidget, QFormLayout, QVBoxLayout, QHBoxLayout,
     QPlainTextEdit, QLineEdit, QPushButton, QLabel, QComboBox, QMessageBox,
@@ -17,7 +17,6 @@ from .datas import (
 )
 from .creation_dialog import NodeCreationDialog
 from .worker import worker_main
-
 
 class ResultListenerThread(QThread):
     """
@@ -55,6 +54,48 @@ class ResultListenerThread(QThread):
         self._running = False
 
 
+class NodeView(QGraphicsView):
+    """
+    A QGraphicsView that holds the NodeScene.
+    """
+    def __init__(self, scene, parent=None):
+        super().__init__(scene, parent)
+        self.setRenderHints(QPainter.RenderHint.Antialiasing | QPainter.RenderHint.SmoothPixmapTransform)
+        self.setDragMode(QGraphicsView.DragMode.RubberBandDrag)
+        self._panning = False
+        self._last_mouse_pos = None
+        
+    def wheelEvent(self, event: QWheelEvent):
+        scaleFactor = 1.15
+        if event.angleDelta().y() > 0:
+            self.scale(scaleFactor, scaleFactor)
+        else:
+            self.scale(1.0 / scaleFactor, 1.0 / scaleFactor)
+
+    def mousePressEvent(self, event: QMouseEvent):
+        if event.button() == Qt.MouseButton.RightButton:
+            self._panning = True
+            self._last_mouse_pos = event.pos()
+            self.setCursor(Qt.CursorShape.ClosedHandCursor)
+        else:
+            super(NodeView, self).mousePressEvent(event)
+
+    def mouseMoveEvent(self, event: QMouseEvent):
+        if self._panning:
+            delta = event.pos() - self._last_mouse_pos
+            self._last_mouse_pos = event.pos()
+            self.horizontalScrollBar().setValue(self.horizontalScrollBar().value() - delta.x())
+            self.verticalScrollBar().setValue(self.verticalScrollBar().value() - delta.y())
+        else:
+            super(NodeView, self).mouseMoveEvent(event)
+
+    def mouseReleaseEvent(self, event: QMouseEvent):
+        if event.button() == Qt.MouseButton.RightButton:
+            self._panning = False
+            self.setCursor(Qt.CursorShape.ArrowCursor)
+        else:
+            super(NodeView, self).mouseReleaseEvent(event)
+
 class NodeEditorWindow(QMainWindow):
     """
     The main window that holds:
@@ -64,7 +105,7 @@ class NodeEditorWindow(QMainWindow):
     """
     def __init__(self):
         super().__init__()
-        self.setWindowTitle("PyQt6 Node Editor - Multiprocessing Build Demo")
+        self.setWindowTitle("QNode Editor for cmake projects")
         self.resize(1600, 900)
 
         # Create and configure NodeScene
@@ -72,9 +113,7 @@ class NodeEditorWindow(QMainWindow):
         self.scene.setTopologyCallback(self.updateTopologyView)
 
         # QGraphicsView for the scene
-        self.view = QGraphicsView(self.scene, self)
-        self.view.setRenderHints(QPainter.RenderHint.Antialiasing | QPainter.RenderHint.SmoothPixmapTransform)
-        self.view.setDragMode(QGraphicsView.DragMode.RubberBandDrag)
+        self.view = NodeView(self.scene, self)
         self.setCentralWidget(self.view)
 
         # Prepare dock widgets
