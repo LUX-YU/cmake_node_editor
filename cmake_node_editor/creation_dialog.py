@@ -1,5 +1,3 @@
-# creation_dialog.py
-
 import os
 
 from PyQt6.QtCore import Qt
@@ -10,47 +8,51 @@ from PyQt6.QtWidgets import (
 
 class NodeCreationDialog(QDialog):
     """
-    让用户输入节点名称，动态添加多个 CMake 选项，然后点击OK或Cancel。
-    同时需要选择目标项目的文件夹，并检查是否存在 CMakeLists.txt。
+    A dialog that lets the user input:
+      - A node name
+      - Multiple CMake options
+      - A target project folder (containing a CMakeLists.txt)
     """
     def __init__(self, parent=None):
         super().__init__(parent)
-        self.setWindowTitle("新建节点")
+        self.setWindowTitle("Create New Node")
+        self.resize(500, 350)
 
-        # 存放各项输入
+        # UI elements for collecting input
         self.node_name_edit = QLineEdit()
         self.node_options_layout = QVBoxLayout()
         self.option_edits = []
 
-        # 项目路径
+        # Project path
         self.project_path_edit = QLineEdit()
-        self.btn_browse_project = QPushButton("选择文件夹")
+        self.btn_browse_project = QPushButton("Browse Folder")
         self.btn_browse_project.clicked.connect(self.onBrowseProject)
 
-        # 初始添加一个空选项
+        # Initially add one empty CMake option
         self.addOptionEdit()
 
-        # “添加选项”按钮
-        self.btn_add_option = QPushButton("添加选项")
+        # "Add Option" button
+        self.btn_add_option = QPushButton("Add CMake Option")
         self.btn_add_option.clicked.connect(self.addOptionEdit)
 
-        # 布局
+        # Build a form layout
         form = QFormLayout()
-        form.addRow("节点名称：", self.node_name_edit)
+        form.addRow("Node Name:", self.node_name_edit)
 
-        # 路径选择行
+        # Row for project path + browse button
         proj_path_layout = QHBoxLayout()
         proj_path_layout.addWidget(self.project_path_edit)
         proj_path_layout.addWidget(self.btn_browse_project)
-        form.addRow("目标项目路径：", proj_path_layout)
+        form.addRow("Project Path:", proj_path_layout)
 
+        # CMake options widget
         opts_widget = QWidget()
         opts_layout = QVBoxLayout(opts_widget)
         opts_layout.addLayout(self.node_options_layout)
         opts_layout.addWidget(self.btn_add_option)
-        form.addRow("CMake 选项：", opts_widget)
+        form.addRow("CMake Options:", opts_widget)
 
-        # 对话框按钮 (OK / Cancel)
+        # Dialog buttons (OK/Cancel)
         self.buttons = QDialogButtonBox(
             QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel,
             parent=self
@@ -58,36 +60,51 @@ class NodeCreationDialog(QDialog):
         self.buttons.accepted.connect(self.onAccept)
         self.buttons.rejected.connect(self.reject)
 
+        # Main layout
         main_layout = QVBoxLayout(self)
         main_layout.addLayout(form)
         main_layout.addWidget(self.buttons)
         self.setLayout(main_layout)
-        self.resize(500, 350)
 
     def addOptionEdit(self, text_value=""):
+        """
+        Add a new QLineEdit to the CMake options layout, optionally pre-filled with 'text_value'.
+        """
         edit = QLineEdit(text_value)
         self.node_options_layout.addWidget(edit)
         self.option_edits.append(edit)
 
     def onBrowseProject(self):
-        folder = QFileDialog.getExistingDirectory(self, "选择项目文件夹", ".")
+        """
+        Let the user pick a project folder. We check if it contains a CMakeLists.txt.
+        """
+        folder = QFileDialog.getExistingDirectory(self, "Select Project Folder", ".")
         if folder:
             self.project_path_edit.setText(folder)
 
     def onAccept(self):
+        """
+        When user clicks OK, ensure the project folder is valid and has CMakeLists.txt.
+        """
         proj_path = self.project_path_edit.text().strip()
         if not os.path.isdir(proj_path):
-            QMessageBox.critical(self, "错误", "请选择有效的项目文件夹。")
+            QMessageBox.critical(self, "Error", "Please select a valid project folder.")
             return
 
         cmakelists_file = os.path.join(proj_path, "CMakeLists.txt")
         if not os.path.exists(cmakelists_file):
-            QMessageBox.critical(self, "错误", "该文件夹下未找到 CMakeLists.txt！")
+            QMessageBox.critical(self, "Error", "No CMakeLists.txt found in that folder.")
             return
 
         self.accept()
 
     def getNodeData(self):
+        """
+        Return (node_name, cmake_options, project_path) as a tuple.
+        node_name  : str
+        cmake_opts : list of str
+        proj_path  : str
+        """
         node_name = self.node_name_edit.text().strip()
         cmake_opts = []
         for ed in self.option_edits:

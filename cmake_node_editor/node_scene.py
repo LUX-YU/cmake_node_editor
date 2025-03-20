@@ -4,12 +4,19 @@ from collections import deque
 
 from PyQt6.QtCore import Qt, QRectF, QPointF
 from PyQt6.QtGui import QBrush, QPen, QPainterPath
-from PyQt6.QtWidgets import QGraphicsScene, QGraphicsRectItem, QGraphicsPathItem, QGraphicsItem, QGraphicsTextItem
+from PyQt6.QtWidgets import (
+    QGraphicsScene, QGraphicsRectItem, QGraphicsPathItem,
+    QGraphicsItem, QGraphicsTextItem
+)
+
+from dataclasses import asdict
+from .datas import NodeData, EdgeData
+
 
 class Pin(QGraphicsRectItem):
     """
-    表示节点上的一个“引脚”（input 或 output）。
-    通过鼠标拖拽该引脚，可以创建/更新连线 (Edge)。
+    Represents a pin on a node (either input or output). 
+    By dragging this pin, the user can create or update an Edge (connection).
     """
     PIN_SIZE = 10
 
@@ -19,6 +26,7 @@ class Pin(QGraphicsRectItem):
         self.is_output = is_output
         self.dragging_edge = None
 
+        # Pin appearance
         self.setBrush(QBrush(Qt.GlobalColor.darkCyan if self.is_output else Qt.GlobalColor.darkGreen))
         self.setPen(QPen(Qt.GlobalColor.black, 1))
         self.setFlags(QGraphicsItem.GraphicsItemFlag.ItemIsSelectable |
@@ -26,16 +34,22 @@ class Pin(QGraphicsRectItem):
         self.setZValue(2)
 
     def centerPos(self):
-        br = self.sceneBoundingRect()
-        return br.center()
+        """
+        Returns the center position of this pin in scene coordinates.
+        """
+        return self.sceneBoundingRect().center()
 
     def mousePressEvent(self, event):
+        """
+        When the user presses the left mouse button on this pin, 
+        create a temporary Edge object to represent a new connection being dragged.
+        """
         if event.button() == Qt.MouseButton.LeftButton:
-            self.dragging_edge = Edge(
-                source_pin=self if self.is_output else None,
-                target_pin=None if self.is_output else self,
-                is_temp=True
-            )
+            fromEdge = self if self.is_output else None
+            toEdge   = None if self.is_output else self
+            self.dragging_edge = Edge(source_pin=fromEdge, 
+                                      target_pin=toEdge, 
+                                      is_temp=True)
             self.scene().addItem(self.dragging_edge)
             self.dragging_edge.updatePath()
             event.accept()
@@ -43,6 +57,9 @@ class Pin(QGraphicsRectItem):
             super().mousePressEvent(event)
 
     def mouseMoveEvent(self, event):
+        """
+        During the drag, update the temporary edge to follow the mouse.
+        """
         if self.dragging_edge:
             scene_pos = event.scenePos()
             self.dragging_edge.setDraggingEnd(scene_pos)
@@ -52,8 +69,12 @@ class Pin(QGraphicsRectItem):
             super().mouseMoveEvent(event)
 
     def mouseReleaseEvent(self, event):
+        """
+        On mouse release, if released over a compatible pin, finalize the connection.
+        """
         if self.dragging_edge:
             scene_pos = event.scenePos()
+            # Search nearby items for a compatible pin
             items = self.scene().items(QRectF(scene_pos - QPointF(5, 5),
                                               scene_pos + QPointF(5, 5)))
             target_pin = None
@@ -61,10 +82,14 @@ class Pin(QGraphicsRectItem):
                 if isinstance(it, Pin) and (it.is_output != self.is_output):
                     target_pin = it
                     break
+
             if target_pin:
+                # Output pin -> Input pin
                 src_pin = self if self.is_output else target_pin
                 dst_pin = target_pin if self.is_output else self
                 self.scene().addEdge(src_pin, dst_pin)
+
+            # Remove the temporary edge
             self.scene().removeItem(self.dragging_edge)
             self.dragging_edge = None
             event.accept()
@@ -74,11 +99,12 @@ class Pin(QGraphicsRectItem):
 
 class Edge(QGraphicsPathItem):
     """
-    节点之间的连线(贝塞尔曲线)。
+    A bezier-curve style connection (edge) between two Pins.
+    If is_temp=True, it represents a temporary edge being dragged.
     """
     def __init__(self, source_pin=None, target_pin=None, is_temp=False):
         super().__init__()
-        self.source_pin = source_pin
+        self.souce_pin  = source_pin
         self.target_pin = target_pin
         self.is_temp = is_temp
         self.dragging_end = None
@@ -88,17 +114,31 @@ class Edge(QGraphicsPathItem):
         self.setZValue(1)
 
     def setDraggingEnd(self, scene_pos: QPointF):
+        """
+        Set the temporary edge's end point (usually the mouse position).
+        """
         self.dragging_end = scene_pos
 
+    def sourcePin(self):
+        return self.souce_pin
+
+    def targetPin(self):
+        return self.target_pin
+
     def updatePath(self):
-        if self.source_pin:
-            p1 = self.source_pin.centerPos()
+        """
+        Update the bezier path from the source pin to target pin 
+        or (in the case of a temporary edge) to the dragging_end.
+        """
+        if self.souce_pin:
+            p1 = self.souce_pin.centerPos()
         elif self.target_pin:
             p1 = self.target_pin.centerPos()
         else:
             return
 
         if self.is_temp:
+            # Use dragging_end as the second anchor if it's a temporary edge
             p2 = self.dragging_end if self.dragging_end else p1
         else:
             if self.target_pin:
@@ -114,38 +154,72 @@ class Edge(QGraphicsPathItem):
         path.cubicTo(p1c, p2c, p2)
         self.setPath(path)
 
+    def edgeData(self):
+        """
+        Return an EdgeData object for this edge. 
+        Contains the source/target node IDs.
+        """
+        s_id = self.souce_pin.parent_node.id() if self.souce_pin else -1
+        t_id = self.target_pin.parent_node.id() if self.target_pin else -1
+        return EdgeData(source_node_id=s_id, target_node_id=t_id)
+
 
 class NodeItem(QGraphicsRectItem):
     """
-    一个矩形节点：包含标题 + 左右两个引脚(输入/输出) + CMake 配置等信息。
+    A rectangular node that includes:
+      - A title
+      - A pair of Pins (input, output)
+      - CMake configuration info (or any additional info).
     """
-    def __init__(self, node_id, title="NewNode", cmake_options=None, project_path=""):
+    def __init__(self, node_id=0, title="NewNode", cmake_options=None, 
+                 project_path="", data: NodeData=None):
         super().__init__(0, 0, 150, 60)
-        self.node_id = node_id
-        self.title = title
-        self.cmake_option_list = cmake_options if cmake_options else []
-        self.project_path = project_path
 
+        # Initialize NodeData
+        if data is None:
+            # If no NodeData was provided, create one
+            self._data = NodeData(
+                node_id=node_id,
+                title=title,
+                pos_x=0,
+                pos_y=0,
+                cmake_options=cmake_options if cmake_options else [],
+                project_path=project_path,
+                code_before_build="",
+                code_after_install=""
+            )
+        else:
+            # If NodeData is provided, use it
+            self._data = data
+            # Restore position
+            self.setPos(self._data.pos_x, self._data.pos_y)
+
+        # Make sure children (pins) can receive clicks
         self.setFlag(QGraphicsItem.GraphicsItemFlag.ItemClipsChildrenToShape, False)
+        # Allow selection, movement, geometry change signals
         self.setFlags(QGraphicsItem.GraphicsItemFlag.ItemIsSelectable |
                       QGraphicsItem.GraphicsItemFlag.ItemIsMovable |
                       QGraphicsItem.GraphicsItemFlag.ItemSendsGeometryChanges)
 
+        # Appearance
         self.setBrush(QBrush(Qt.GlobalColor.lightGray))
         self.setPen(QPen(Qt.GlobalColor.black, 2))
         self.setZValue(0)
 
-        # 文本标题
-        self.text_item = QGraphicsTextItem(self.title, self)
+        # Title text
+        self.text_item = QGraphicsTextItem(self._data.title, self)
         self.text_item.setDefaultTextColor(Qt.GlobalColor.black)
         self.centerTitle()
 
-        # 引脚：左(input)、右(output)
-        self.input_pin = Pin(self, is_output=False)
+        # Pins (left input, right output)
+        self.input_pin  = Pin(self, is_output=False)
         self.output_pin = Pin(self, is_output=True)
         self.updatePinsPos()
 
     def centerTitle(self):
+        """
+        Position the title text in the center of the node rectangle.
+        """
         rect = self.rect()
         trect = self.text_item.boundingRect()
         cx = rect.x() + (rect.width() - trect.width()) / 2
@@ -153,38 +227,90 @@ class NodeItem(QGraphicsRectItem):
         self.text_item.setPos(cx, cy)
 
     def updateTitle(self, new_title):
-        self.title = new_title
+        self._data.title = new_title
         self.text_item.setPlainText(new_title)
         self.centerTitle()
 
     def setCMakeOptions(self, options_list):
-        self.cmake_option_list = options_list
+        self._data.cmake_options = options_list
 
     def setProjectPath(self, path_str):
-        self.project_path = path_str
+        self._data.project_path = path_str
 
     def updatePinsPos(self):
+        """
+        Position the input pin on the left middle side,
+        and the output pin on the right middle side.
+        """
         rect = self.rect()
-        self.input_pin.setPos(rect.x() - Pin.PIN_SIZE/2,
-                              rect.y() + (rect.height()-Pin.PIN_SIZE)/2)
-        self.output_pin.setPos(rect.x() + rect.width() - Pin.PIN_SIZE/2,
-                               rect.y() + (rect.height()-Pin.PIN_SIZE)/2)
+        half_size = Pin.PIN_SIZE / 2
+        # Input pin on left center
+        self.input_pin.setPos(rect.x() - half_size,
+                              rect.y() + (rect.height() - Pin.PIN_SIZE) / 2)
+        # Output pin on right center
+        self.output_pin.setPos(rect.x() + rect.width() - half_size,
+                               rect.y() + (rect.height() - Pin.PIN_SIZE) / 2)
 
     def itemChange(self, change, value):
+        """
+        When the node moves, update any connected edges and store the new position in NodeData.
+        """
         if change == QGraphicsItem.GraphicsItemChange.ItemPositionHasChanged:
             self.updatePinsPos()
             if self.scene():
                 for edge in self.scene().edges:
-                    if edge.source_pin and edge.source_pin.parent_node == self:
+                    if edge.sourcePin() and edge.sourcePin().parent_node == self:
                         edge.updatePath()
-                    if edge.target_pin and edge.target_pin.parent_node == self:
+                    if edge.targetPin() and edge.targetPin().parent_node == self:
                         edge.updatePath()
+
+            # Update NodeData pos_x, pos_y
+            self._data.pos_x = self.pos().x()
+            self._data.pos_y = self.pos().y()
+
         return super().itemChange(change, value)
+
+    # -- Accessors --
+    def id(self):
+        return self._data.node_id
+
+    def title(self):
+        return self._data.title
+
+    def posX(self):
+        return self._data.pos_x
+
+    def posY(self):
+        return self._data.pos_y
+
+    def cmakeOptions(self):
+        return self._data.cmake_options
+
+    def projectPath(self):
+        return self._data.project_path
+
+    def codeBeforeBuild(self):
+        return self._data.code_before_build
+
+    def setCodeBeforeBuild(self, code_str):
+        self._data.code_before_build = code_str
+
+    def codeAfterInstall(self):
+        return self._data.code_after_install
+
+    def setCodeAfterInstall(self, code_str):
+        self._data.code_after_install = code_str
+
+    def nodeData(self) -> NodeData:
+        return self._data
 
 
 class NodeScene(QGraphicsScene):
     """
-    场景，管理所有节点、连线，以及拓扑排序、保存加载等。
+    A QGraphicsScene that manages:
+      - All NodeItem and Edge objects
+      - Topological sorting 
+      - Project saving/loading (including global config).
     """
     nodeCounter = 1
 
@@ -196,6 +322,9 @@ class NodeScene(QGraphicsScene):
         self.topology_changed_callback = None
 
     def setTopologyCallback(self, func):
+        """
+        Set a callback to be called whenever topology might have changed.
+        """
         self.topology_changed_callback = func
 
     def notifyTopologyChanged(self):
@@ -203,9 +332,15 @@ class NodeScene(QGraphicsScene):
             self.topology_changed_callback()
 
     def addNewNode(self, title, cmake_options, project_path):
+        """
+        Create a new NodeItem, place it in the scene, and update topology.
+        """
         node_id = NodeScene.nodeCounter
         NodeScene.nodeCounter += 1
-        new_node = NodeItem(node_id, title, cmake_options, project_path)
+        new_node = NodeItem(node_id=node_id, 
+                            title=title,
+                            cmake_options=cmake_options, 
+                            project_path=project_path)
         new_node.setPos(100, 100)
         self.addItem(new_node)
         self.nodes.append(new_node)
@@ -213,19 +348,28 @@ class NodeScene(QGraphicsScene):
         return new_node
 
     def removeNode(self, node_item):
+        """
+        Remove the specified node and any edges connected to it.
+        """
         if node_item in self.nodes:
             edges_to_remove = []
             for e in self.edges:
-                if (e.source_pin and e.source_pin.parent_node == node_item) or \
-                   (e.target_pin and e.target_pin.parent_node == node_item):
+                # If the edge's sourcePin or targetPin is the node_item itself
+                if (e.sourcePin() and e.sourcePin() == node_item) or \
+                   (e.targetPin() and e.targetPin() == node_item):
                     edges_to_remove.append(e)
+
             for e in edges_to_remove:
                 self.removeEdge(e)
+
             self.removeItem(node_item)
             self.nodes.remove(node_item)
             self.notifyTopologyChanged()
 
     def addEdge(self, source_pin, target_pin):
+        """
+        Create an Edge from source_pin to target_pin, add to scene, update path, notify topology.
+        """
         edge = Edge(source_pin, target_pin, is_temp=False)
         self.addItem(edge)
         self.edges.append(edge)
@@ -233,21 +377,29 @@ class NodeScene(QGraphicsScene):
         self.notifyTopologyChanged()
 
     def removeEdge(self, edge):
+        """
+        Remove the given edge from the scene.
+        """
         if edge in self.edges:
             self.removeItem(edge)
             self.edges.remove(edge)
             self.notifyTopologyChanged()
 
     def topologicalSort(self):
+        """
+        Perform a topological sort on the scene's nodes based on edges (output->input).
+        Return None if there's a cycle.
+        """
         adjacency = {}
         in_degree = {}
+
         for node in self.nodes:
             adjacency[node] = []
             in_degree[node] = 0
 
         for edge in self.edges:
-            src_node = edge.source_pin.parent_node
-            dst_node = edge.target_pin.parent_node
+            src_node = edge.sourcePin().parent_node
+            dst_node = edge.targetPin().parent_node
             adjacency[src_node].append(dst_node)
             in_degree[dst_node] += 1
 
@@ -266,78 +418,65 @@ class NodeScene(QGraphicsScene):
                     queue.append(child)
 
         if len(result) < len(self.nodes):
+            # There's a cycle
             return None
         return result
 
-    # ------------------- 修改：支持同时保存全局配置 -------------------
     def saveProjectToJson(self, filepath, global_config=None):
         """
-        新增可选参数 global_config，用于同时保存全局构建配置。
+        Save this scene to a JSON file.
+        Includes:
+         - global config (if any)
+         - node data
+         - edge data
         """
         data = {
-            "global": global_config if global_config else {},  # 存储全局配置
+            "global": global_config if global_config else {},
             "nodes": [],
             "edges": []
         }
 
+        # Serialize nodes
         for node in self.nodes:
-            x = node.pos().x()
-            y = node.pos().y()
-            data["nodes"].append({
-                "node_id": node.node_id,
-                "title": node.title,
-                "pos_x": x,
-                "pos_y": y,
-                "cmake_options": node.cmake_option_list,
-                "project_path": node.project_path
-            })
+            data["nodes"].append(asdict(node.nodeData()))
 
+        # Serialize edges
         for edge in self.edges:
-            src_id = edge.source_pin.parent_node.node_id
-            dst_id = edge.target_pin.parent_node.node_id
-            data["edges"].append({
-                "source_node_id": src_id,
-                "target_node_id": dst_id
-            })
+            data["edges"].append(asdict(edge.edgeData()))
 
         with open(filepath, "w", encoding="utf-8") as f:
             json.dump(data, f, indent=4, ensure_ascii=False)
 
     def loadProjectFromJson(self, filepath):
         """
-        返回一个 dict, 表示从文件中读取到的 global_config（全局配置）.
-        同时重建本场景的 nodes/edges.
+        Load the scene (nodes/edges) plus global config from the specified JSON file.
+        Returns the global config as a dict.
         """
         if not os.path.exists(filepath):
-            raise FileNotFoundError(f"文件不存在: {filepath}")
+            raise FileNotFoundError(f"File not found: {filepath}")
 
         with open(filepath, "r", encoding="utf-8") as f:
             data = json.load(f)
 
-        # 读取 global_config
         global_cfg = data.get("global", {})
-
         self.clearScene()
 
+        # Update nodeCounter
         NodeScene.nodeCounter = 1
         for nd in data.get("nodes", []):
             node_id = nd["node_id"]
             NodeScene.nodeCounter = max(NodeScene.nodeCounter, node_id + 1)
 
         node_map = {}
+        # Recreate nodes
         for nd in data.get("nodes", []):
-            node_id = nd["node_id"]
-            title = nd["title"]
-            x = nd["pos_x"]
-            y = nd["pos_y"]
-            cmake_opts = nd.get("cmake_options", [])
-            project_path = nd.get("project_path", "")
-            node_item = NodeItem(node_id, title, cmake_opts, project_path)
-            node_item.setPos(x, y)
+            node_data = NodeData(**nd)
+            node_item = NodeItem(data=node_data)
             self.addItem(node_item)
             self.nodes.append(node_item)
-            node_map[node_id] = node_item
+            node_map[node_item.id()] = node_item
 
+        # Recreate edges
         for ed in data.get("edges", []):
             src_id = ed["source_node_id"]
             dst_id = ed["target_node_id"]
@@ -345,11 +484,12 @@ class NodeScene(QGraphicsScene):
                 self.addEdge(node_map[src_id].output_pin, node_map[dst_id].input_pin)
 
         self.notifyTopologyChanged()
-
-        # 返回 global_cfg 给外部
         return global_cfg
 
     def clearScene(self):
+        """
+        Remove all edges and nodes from the scene.
+        """
         for e in self.edges[:]:
             self.removeEdge(e)
         for n in self.nodes[:]:
