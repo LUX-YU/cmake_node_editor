@@ -242,6 +242,8 @@ class NodeEditorWindow(QMainWindow):
             "toolchain": self.edit_toolchain.text().strip(),
             "generator": self.combo_generator.currentText(),
             "start_node_id": self.edit_start_node_id.text().strip(),
+            "c_compiler": self.edit_c_compiler.text().strip(),
+            "cxx_compiler": self.edit_cxx_compiler.text().strip()
         }
 
         self.scene.saveProjectToJson(filepath, global_cfg)
@@ -285,6 +287,8 @@ class NodeEditorWindow(QMainWindow):
             self.combo_generator.setCurrentText(gen)
 
         self.edit_start_node_id.setText(global_cfg.get("start_node_id", ""))
+        self.edit_c_compiler.setText(global_cfg.get("c_compiler", ""))
+        self.edit_cxx_compiler.setText(global_cfg.get("cxx_compiler", ""))
 
     # ----------------------------------------------------------------
     # Global build settings UI
@@ -317,6 +321,12 @@ class NodeEditorWindow(QMainWindow):
             # ... etc ...
         ])
         self.build_layout.addRow("CMake Generator:", self.combo_generator)
+        
+        self.edit_c_compiler = QLineEdit()
+        self.build_layout.addRow("C Compiler (CMAKE_C_COMPILER):", self.edit_c_compiler)
+
+        self.edit_cxx_compiler = QLineEdit()
+        self.build_layout.addRow("C++ Compiler (CMAKE_CXX_COMPILER):", self.edit_cxx_compiler)
 
         self.edit_start_node_id = QLineEdit()
         self.build_layout.addRow("Start Node ID:", self.edit_start_node_id)
@@ -455,6 +465,9 @@ class NodeEditorWindow(QMainWindow):
             row_widget, line_edit = self.createOptionRow(opt)
             self.cmake_option_rows.append((row_widget, line_edit))
             self.cmake_option_layout.insertWidget(len(self.cmake_option_rows)-1, row_widget)
+            
+        self.edit_py_before.setPlainText(self.current_node.codeBeforeBuild())
+        self.edit_py_after.setPlainText(self.current_node.codeAfterInstall())
 
     def onApplyNodeProperties(self):
         if not self.current_node:
@@ -508,6 +521,8 @@ class NodeEditorWindow(QMainWindow):
         build_type    = self.combo_build_type.currentText()
         toolchain_path= self.edit_toolchain.text().strip()
         prefix_path   = self.edit_prefix_path.text().strip()
+        c_compiler    = self.edit_c_compiler.text().strip()
+        cxx_compiler  = self.edit_cxx_compiler.text().strip() 
 
         generator = self.combo_generator.currentText()
         if generator.startswith("Default"):
@@ -544,7 +559,9 @@ class NodeEditorWindow(QMainWindow):
             prefix_path=prefix_path,
             toolchain_file=toolchain_path,
             generator=generator,
-            start_node_id=start_index
+            start_node_id=start_index,
+            c_compiler=c_compiler,
+            cxx_compiler=cxx_compiler
         )
 
         project_commands = ProjectCommands(
@@ -586,11 +603,15 @@ class NodeEditorWindow(QMainWindow):
                 "cmake",
                 "-S", project_dir,
                 "-B", node_build_dir,
-                f"-DCMAKE_BUILD_TYPE={build_type}",
+                f"-DCMAKE_BUILD_TYPE:STRING={build_type}",
                 f"-DCMAKE_INSTALL_PREFIX={node_install_dir}"
             ]
             if generator:
                 cmd_configure.insert(1, f"-G {generator}")
+            if global_cfg_data.c_compiler:
+                cmd_configure.append(f"-DCMAKE_C_COMPILER:FILEPATH={global_cfg_data.c_compiler}")
+            if global_cfg_data.cxx_compiler:
+                cmd_configure.append(f"-DCMAKE_CXX_COMPILER:FILEPATH={global_cfg_data.cxx_compiler}")
             if toolchain_path:
                 cmd_configure.append(f"-DCMAKE_TOOLCHAIN_FILE={toolchain_path}")
             if prefix_path:

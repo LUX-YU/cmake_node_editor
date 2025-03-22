@@ -27,6 +27,8 @@ class GlobalConfigData:
     toolchain_file : str
     generator: str
     start_node_id : int
+    c_compiler: str = ""
+    cxx_compiler: str = ""
 
 @dataclass
 class CommandData:
