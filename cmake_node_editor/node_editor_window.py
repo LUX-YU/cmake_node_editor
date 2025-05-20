@@ -10,7 +10,7 @@ from PyQt6.QtWidgets import (
     QFileDialog, QGraphicsView, QScrollArea, QProgressBar, QInputDialog, QMenu
 )
 
-from .node_scene import NodeScene, NodeItem
+from .node_scene import NodeScene, NodeItem, Edge
 from .datas import (
     ProjectCommands, NodeCommands, CommandData,
     BuildSettings, SubprocessLogData, SubprocessResponseData
@@ -56,12 +56,15 @@ class ResultListenerThread(QThread):
 
 
 class NodeView(QGraphicsView):
-    """
-    A QGraphicsView that holds the NodeScene.
-    """
+    """A QGraphicsView that holds the NodeScene."""
+
+    createNodeRequested = pyqtSignal()
+
     def __init__(self, scene, parent=None):
         super().__init__(scene, parent)
-        self.setRenderHints(QPainter.RenderHint.Antialiasing | QPainter.RenderHint.SmoothPixmapTransform)
+        self.setRenderHints(
+            QPainter.RenderHint.Antialiasing | QPainter.RenderHint.SmoothPixmapTransform
+        )
         self.setDragMode(QGraphicsView.DragMode.RubberBandDrag)
         self._panning = False
         self._last_mouse_pos = None
@@ -100,24 +103,31 @@ class NodeView(QGraphicsView):
             self.setCursor(Qt.CursorShape.ArrowCursor)
             self._press_pos = None
             if moved < 4:
-                menu = QMenu(self)
-                act_create = menu.addAction("Create Node")
-                chosen = menu.exec(event.globalPosition().toPoint())
-                if chosen == act_create:
-                    win = self.window()
-                    if hasattr(win, "onAddNodeDialog"):
-                        win.onAddNodeDialog()
+                self.openContextMenu(event.globalPosition().toPoint())
         else:
             super(NodeView, self).mouseReleaseEvent(event)
 
     def showContextMenu(self, pos):
+        self.openContextMenu(self.mapToGlobal(pos))
+
+    def openContextMenu(self, global_pos):
         menu = QMenu(self)
         act_new = menu.addAction("Create Node")
-        action = menu.exec(self.mapToGlobal(pos))
+        action = menu.exec(global_pos)
         if action == act_new:
-            main = self.window()
-            if hasattr(main, "onAddNodeDialog"):
-                main.onAddNodeDialog()
+            self.createNodeRequested.emit()
+
+    def keyPressEvent(self, event):
+        if event.key() in (Qt.Key.Key_Delete, Qt.Key.Key_Backspace):
+            scene = self.scene()
+            for item in scene.selectedItems():
+                if isinstance(item, Edge):
+                    scene.removeEdge(item)
+                elif isinstance(item, NodeItem):
+                    scene.removeNode(item)
+            event.accept()
+        else:
+            super().keyPressEvent(event)
 
 class NodeEditorWindow(QMainWindow):
     """
@@ -137,6 +147,7 @@ class NodeEditorWindow(QMainWindow):
 
         # QGraphicsView for the scene
         self.view = NodeView(self.scene, self)
+        self.view.createNodeRequested.connect(self.onAddNodeDialog)
         self.setCentralWidget(self.view)
 
         # Prepare dock widgets
@@ -181,20 +192,23 @@ class NodeEditorWindow(QMainWindow):
         self.addDockWidget(Qt.DockWidgetArea.BottomDockWidgetArea, self.dock_build_output)
 
     def initBuildControlsDock(self):
-        """Dock containing global build controls."""
+        """Create the dock widget used for global build controls."""
         self.dock_build_controls = QDockWidget("Build Controls", self)
         widget = QWidget()
-        layout = QFormLayout(widget)
+        layout = QVBoxLayout(widget)
 
+        form = QFormLayout()
         self.edit_start_node_id = QLineEdit()
-        layout.addRow("Start Node ID:", self.edit_start_node_id)
+        form.addRow("Start Node ID:", self.edit_start_node_id)
+        layout.addLayout(form)
 
         self.btn_build_all = QPushButton("Start Build")
-        self.btn_build_all.clicked.connect(lambda: self.onBuildAll())
+        self.btn_build_all.clicked.connect(self.onBuildAll)
         layout.addWidget(self.btn_build_all)
 
+        layout.addStretch()
         self.dock_build_controls.setWidget(widget)
-        self.addDockWidget(Qt.DockWidgetArea.BottomDockWidgetArea, self.dock_build_controls)
+        self.addDockWidget(Qt.DockWidgetArea.RightDockWidgetArea, self.dock_build_controls)
 
     def initPropertiesDock(self):
         """
@@ -223,26 +237,6 @@ class NodeEditorWindow(QMainWindow):
         self.dock_topology.setWidget(self.topology_view)
         self.addDockWidget(Qt.DockWidgetArea.LeftDockWidgetArea, self.dock_topology)
 
-    def initBuildControlDock(self):
-        """
-        Dock that holds global build controls like the start node ID and build button.
-        """
-        self.dock_build_ctrl = QDockWidget("Build Controls", self)
-        widget = QWidget()
-        layout = QVBoxLayout(widget)
-
-        form = QFormLayout()
-        self.edit_start_node_id = QLineEdit()
-        form.addRow("Start Node ID:", self.edit_start_node_id)
-        layout.addLayout(form)
-
-        self.btn_build_all = QPushButton("Start Build")
-        self.btn_build_all.clicked.connect(lambda: self.onBuildAll())
-        layout.addWidget(self.btn_build_all)
-
-        layout.addStretch()
-        self.dock_build_ctrl.setWidget(widget)
-        self.addDockWidget(Qt.DockWidgetArea.RightDockWidgetArea, self.dock_build_ctrl)
 
     # ----------------------------------------------------------------
     # Window events
@@ -363,11 +357,12 @@ class NodeEditorWindow(QMainWindow):
 
     def onSettings(self):
         current_style = QApplication.style().objectName()
-        dlg = SettingsDialog(current_style, self.scene.gridOpacity(), self)
+        dlg = SettingsDialog(current_style, self.scene.gridOpacity(), self.scene.linkColor(), self)
         if dlg.exec():
-            style_name, opacity = dlg.getValues()
+            style_name, opacity, link_color = dlg.getValues()
             QApplication.setStyle(style_name)
             self.scene.setGridOpacity(opacity)
+            self.scene.setLinkColor(link_color)
 
     def onPartialBuild(self):
         names = [n.title() for n in self.scene.nodes]
@@ -602,11 +597,14 @@ class NodeEditorWindow(QMainWindow):
         self.edit_install_dir.setText(bs.install_dir)
         self.edit_prefix_path.setText(bs.prefix_path)
         self.edit_toolchain.setText(bs.toolchain_file)
-        gen_idx = self.combo_generator.findText(bs.generator)
-        if gen_idx >= 0:
-            self.combo_generator.setCurrentIndex(gen_idx)
+        if bs.generator:
+            gen_idx = self.combo_generator.findText(bs.generator)
+            if gen_idx >= 0:
+                self.combo_generator.setCurrentIndex(gen_idx)
+            else:
+                self.combo_generator.setCurrentText(bs.generator)
         else:
-            self.combo_generator.setCurrentText(bs.generator)
+            self.combo_generator.setCurrentIndex(0)
         self.edit_c_compiler.setText(bs.c_compiler)
         self.edit_cxx_compiler.setText(bs.cxx_compiler)
 
@@ -636,13 +634,16 @@ class NodeEditorWindow(QMainWindow):
         new_proj_path = self.edit_node_project_path.text().strip()
         self.current_node.setProjectPath(new_proj_path)
 
+        generator = (
+            "" if self.combo_generator.currentIndex() == 0 else self.combo_generator.currentText()
+        )
         bs = BuildSettings(
             build_dir=self.edit_build_dir.text().strip(),
             install_dir=self.edit_install_dir.text().strip(),
             build_type=self.combo_build_type.currentText(),
             prefix_path=self.edit_prefix_path.text().strip(),
             toolchain_file=self.edit_toolchain.text().strip(),
-            generator=self.combo_generator.currentText(),
+            generator=generator,
             c_compiler=self.edit_c_compiler.text().strip(),
             cxx_compiler=self.edit_cxx_compiler.text().strip(),
         )
