@@ -7,7 +7,7 @@ from PyQt6.QtGui import QPainter, QWheelEvent, QPainter, QMouseEvent
 from PyQt6.QtWidgets import (
     QMainWindow, QDockWidget, QWidget, QFormLayout, QVBoxLayout, QHBoxLayout,
     QPlainTextEdit, QLineEdit, QPushButton, QLabel, QComboBox, QMessageBox,
-    QFileDialog, QGraphicsView, QScrollArea, QMenu
+    QFileDialog, QGraphicsView, QScrollArea, QProgressBar, QInputDialog, QMenu
 )
 
 from .node_scene import NodeScene, NodeItem
@@ -64,7 +64,8 @@ class NodeView(QGraphicsView):
         self.setDragMode(QGraphicsView.DragMode.RubberBandDrag)
         self._panning = False
         self._last_mouse_pos = None
-        self._press_pos = None
+        self.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
+        self.customContextMenuRequested.connect(self.showContextMenu)
         
     def wheelEvent(self, event: QWheelEvent):
         scaleFactor = 1.15
@@ -108,6 +109,15 @@ class NodeView(QGraphicsView):
         else:
             super(NodeView, self).mouseReleaseEvent(event)
 
+    def showContextMenu(self, pos):
+        menu = QMenu(self)
+        act_new = menu.addAction("Create Node")
+        action = menu.exec(self.mapToGlobal(pos))
+        if action == act_new:
+            main = self.window()
+            if hasattr(main, "onAddNodeDialog"):
+                main.onAddNodeDialog()
+
 class NodeEditorWindow(QMainWindow):
     """
     The main window that holds:
@@ -131,6 +141,7 @@ class NodeEditorWindow(QMainWindow):
         # Prepare dock widgets
 
         self.initBuildOutputDock()
+        self.initBuildControlsDock()
         self.initPropertiesDock()
         self.initTopologyDock()
         self.initBuildControlDock()
@@ -138,6 +149,7 @@ class NodeEditorWindow(QMainWindow):
         # Setup other UI pieces
         self.initNodePropertiesUI()
         self.initMenu()
+        self.initStatusBar()
 
         # Connect scene signals
         self.current_node = None
@@ -167,6 +179,22 @@ class NodeEditorWindow(QMainWindow):
         self.build_output_text.setReadOnly(True)
         self.dock_build_output.setWidget(self.build_output_text)
         self.addDockWidget(Qt.DockWidgetArea.BottomDockWidgetArea, self.dock_build_output)
+
+    def initBuildControlsDock(self):
+        """Dock containing global build controls."""
+        self.dock_build_controls = QDockWidget("Build Controls", self)
+        widget = QWidget()
+        layout = QFormLayout(widget)
+
+        self.edit_start_node_id = QLineEdit()
+        layout.addRow("Start Node ID:", self.edit_start_node_id)
+
+        self.btn_build_all = QPushButton("Start Build")
+        self.btn_build_all.clicked.connect(lambda: self.onBuildAll())
+        layout.addWidget(self.btn_build_all)
+
+        self.dock_build_controls.setWidget(widget)
+        self.addDockWidget(Qt.DockWidgetArea.BottomDockWidgetArea, self.dock_build_controls)
 
     def initPropertiesDock(self):
         """
@@ -256,9 +284,38 @@ class NodeEditorWindow(QMainWindow):
         act_load = file_menu.addAction("Load Project...")
         act_load.triggered.connect(self.onLoadProject)
 
-        edit_menu = menubar.addMenu("Edit")
-        act_new_node = edit_menu.addAction("Create Node")
-        act_new_node.triggered.connect(lambda: self.onAddNodeDialog())
+        project_menu = menubar.addMenu("Project")
+        act_full = project_menu.addAction("Full Build")
+        act_full.triggered.connect(lambda: self.onBuildAll(start_node_name=None, force_first=True))
+        act_partial = project_menu.addAction("Partial Build")
+        act_partial.triggered.connect(self.onPartialBuild)
+
+        windows_menu = menubar.addMenu("Windows")
+        self.act_win_properties = windows_menu.addAction("Node Properties")
+        self.act_win_properties.setCheckable(True)
+        self.act_win_properties.setChecked(True)
+        self.act_win_properties.toggled.connect(self.dock_properties.setVisible)
+
+        self.act_win_build_ctrl = windows_menu.addAction("Build Controls")
+        self.act_win_build_ctrl.setCheckable(True)
+        self.act_win_build_ctrl.setChecked(True)
+        self.act_win_build_ctrl.toggled.connect(self.dock_build_controls.setVisible)
+
+        self.act_win_build_out = windows_menu.addAction("Build Output")
+        self.act_win_build_out.setCheckable(True)
+        self.act_win_build_out.setChecked(True)
+        self.act_win_build_out.toggled.connect(self.dock_build_output.setVisible)
+
+        self.act_win_topology = windows_menu.addAction("Topology Order")
+        self.act_win_topology.setCheckable(True)
+        self.act_win_topology.setChecked(True)
+        self.act_win_topology.toggled.connect(self.dock_topology.setVisible)
+
+    def initStatusBar(self):
+        self.progress_bar = QProgressBar()
+        self.progress_bar.setMaximum(1)
+        self.progress_bar.hide()
+        self.statusBar().addPermanentWidget(self.progress_bar)
 
     def onSaveProject(self):
         """
@@ -294,6 +351,14 @@ class NodeEditorWindow(QMainWindow):
         """
         self.edit_start_node_id.setText(global_cfg.get("start_node_id", ""))
 
+    def onPartialBuild(self):
+        names = [n.title() for n in self.scene.nodes]
+        if not names:
+            QMessageBox.information(self, "Info", "No nodes available")
+            return
+        name, ok = QInputDialog.getItem(self, "Partial Build", "Start from node:", names, 0, False)
+        if ok and name:
+            self.onBuildAll(start_node_name=name)
 
     # ----------------------------------------------------------------
     # Node Properties UI
@@ -580,7 +645,7 @@ class NodeEditorWindow(QMainWindow):
     # ----------------------------------------------------------------
     # Asynchronous build flow
     # ----------------------------------------------------------------
-    def onBuildAll(self):
+    def onBuildAll(self, start_node_name=None, force_first=False):
         """
         Gather global build config, do a topological sort, build a ProjectCommands,
         start the worker process & result thread, then send the commands to the worker.
@@ -595,19 +660,30 @@ class NodeEditorWindow(QMainWindow):
 
         start_id = None
         start_index = 0
-        start_node_id_str = self.edit_start_node_id.text().strip()
-        if start_node_id_str:
-            try:
-                sid = int(start_node_id_str)
-                for idx, node_item in enumerate(sorted_nodes):
-                    if node_item.id() == sid:
-                        start_id = sid
-                        start_index = idx
-                        break
-                if start_id is None:
-                    QMessageBox.warning(self, "Warning", f"Node ID={sid} not found, building from beginning.")
-            except ValueError:
-                QMessageBox.warning(self, "Warning", f"Start Node ID '{start_node_id_str}' invalid, building from beginning.")
+        if force_first:
+            start_id = sorted_nodes[0].id() if sorted_nodes else -1
+        elif start_node_name:
+            for idx, node_item in enumerate(sorted_nodes):
+                if node_item.title() == start_node_name:
+                    start_id = node_item.id()
+                    start_index = idx
+                    break
+            if start_id is None:
+                QMessageBox.warning(self, "Warning", f"Node '{start_node_name}' not found, building from beginning.")
+        else:
+            start_node_id_str = self.edit_start_node_id.text().strip()
+            if start_node_id_str:
+                try:
+                    sid = int(start_node_id_str)
+                    for idx, node_item in enumerate(sorted_nodes):
+                        if node_item.id() == sid:
+                            start_id = sid
+                            start_index = idx
+                            break
+                    if start_id is None:
+                        QMessageBox.warning(self, "Warning", f"Node ID={sid} not found, building from beginning.")
+                except ValueError:
+                    QMessageBox.warning(self, "Warning", f"Start Node ID '{start_node_id_str}' invalid, building from beginning.")
 
         project_commands = ProjectCommands(
             start_node_id=start_id if start_id is not None else -1,
@@ -709,8 +785,13 @@ class NodeEditorWindow(QMainWindow):
             QMessageBox.information(self, "Info", "No commands to build.")
             return
 
-        # Disable build button
+        # Disable build button and setup progress bar
         self.btn_build_all.setEnabled(False)
+        self.total_steps = len(project_commands.node_commands_list)
+        self.progress_bar.setMaximum(self.total_steps)
+        self.progress_bar.setValue(0)
+        self.progress_bar.show()
+        self.current_progress = 0
 
         # Create queues and start worker process
         self.task_queue = multiprocessing.Queue()
@@ -747,6 +828,10 @@ class NodeEditorWindow(QMainWindow):
             f"[Worker Response idx={respData.index}] Command {result_str}"
         )
 
+        if respData.index >= 0:
+            self.current_progress += 1
+            self.progress_bar.setValue(self.current_progress)
+
         # If index == -1, means entire build ended.
         if respData.index == -1:
             if respData.result:
@@ -757,3 +842,4 @@ class NodeEditorWindow(QMainWindow):
             # Stop worker process, re-enable build button
             self.stopWorkerProcess()
             self.btn_build_all.setEnabled(True)
+            self.progress_bar.hide()
