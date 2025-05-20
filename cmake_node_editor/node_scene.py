@@ -112,13 +112,19 @@ class Edge(QGraphicsPathItem):
         self.setZValue(1)
         self.updateColor()
 
+    def paint(self, painter, option, widget=None):
+        painter.setPen(self.pen())
+        painter.setBrush(Qt.BrushStyle.NoBrush)
+        painter.drawPath(self.path())
+
     def updateColor(self):
         scene = self.scene()
         base = scene.link_color if scene else QColor(Qt.GlobalColor.black)
-        pen = QPen(base, 2)
         if self.isSelected():
-            pen.setColor(base.darker(150))
-            pen.setWidth(3)
+            inv = QColor(255 - base.red(), 255 - base.green(), 255 - base.blue())
+            pen = QPen(inv, 3)
+        else:
+            pen = QPen(base, 2)
         self.setPen(pen)
 
     def itemChange(self, change, value):
@@ -237,6 +243,15 @@ class NodeItem(QGraphicsRectItem):
         self.input_pin  = Pin(self, is_output=False)
         self.output_pin = Pin(self, is_output=True)
         self.updatePinsPos()
+
+    def mouseDoubleClickEvent(self, event):
+        if event.button() == Qt.MouseButton.LeftButton and self.scene():
+            parent = self.scene().parent()
+            if parent and hasattr(parent, 'openNodePropertyDialog'):
+                parent.openNodePropertyDialog(self)
+            event.accept()
+        else:
+            super().mouseDoubleClickEvent(event)
 
     def centerTitle(self):
         """
