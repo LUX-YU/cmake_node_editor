@@ -1,11 +1,14 @@
 import os
 
+from dataclasses import fields
 from PyQt6.QtCore import Qt
 from PyQt6.QtWidgets import (
     QDialog, QLabel, QLineEdit, QPushButton, QVBoxLayout, QHBoxLayout,
     QFormLayout, QWidget, QFileDialog, QMessageBox, QDialogButtonBox,
     QScrollArea, QCheckBox, QComboBox
 )
+
+from .datas import NodeData
 
 class NodeCreationDialog(QDialog):
     """
@@ -30,9 +33,15 @@ class NodeCreationDialog(QDialog):
         self.inherit_combo.addItem("None")
         for n in self.existing_nodes:
             self.inherit_combo.addItem(n.title())
-        self.chk_inherit_proj = QCheckBox("Project Path")
-        self.chk_inherit_opts = QCheckBox("CMake Options")
-        self.chk_inherit_build = QCheckBox("Build Settings")
+
+        # Dynamically create checkboxes for inheritable attributes
+        self.attr_checkboxes = []
+        skip_fields = {"node_id", "title", "pos_x", "pos_y"}
+        for f in fields(NodeData):
+            if f.name in skip_fields:
+                continue
+            cb = QCheckBox(f.name)
+            self.attr_checkboxes.append(cb)
 
         # Project path
         self.project_path_edit = QLineEdit()
@@ -50,11 +59,10 @@ class NodeCreationDialog(QDialog):
         form = QFormLayout()
         form.addRow("Node Name:", self.node_name_edit)
         form.addRow("Inherit From:", self.inherit_combo)
-        inherit_layout = QHBoxLayout()
-        inherit_layout.addWidget(self.chk_inherit_proj)
-        inherit_layout.addWidget(self.chk_inherit_opts)
-        inherit_layout.addWidget(self.chk_inherit_build)
-        form.addRow("Copy Options:", inherit_layout)
+        inherit_layout = QVBoxLayout()
+        for cb in self.attr_checkboxes:
+            inherit_layout.addWidget(cb)
+        form.addRow("Copy Attributes:", inherit_layout)
 
         # Row for project path + browse button
         proj_path_layout = QHBoxLayout()
@@ -125,7 +133,12 @@ class NodeCreationDialog(QDialog):
         When user clicks OK, ensure the project folder is valid and has CMakeLists.txt.
         """
         proj_path = self.project_path_edit.text().strip()
-        inherit_proj = self.chk_inherit_proj.isChecked() and self.inherit_combo.currentIndex() > 0
+        inherit_proj = False
+        if self.inherit_combo.currentIndex() > 0:
+            for cb in self.attr_checkboxes:
+                if cb.text() == "project_path" and cb.isChecked():
+                    inherit_proj = True
+                    break
         if not inherit_proj:
             if not os.path.isdir(proj_path):
                 QMessageBox.critical(self, "Error", "Please select a valid project folder.")
@@ -140,10 +153,11 @@ class NodeCreationDialog(QDialog):
 
     def getNodeData(self):
         """
-        Return (node_name, cmake_options, project_path, inherit_index, inherit_flags) as a tuple.
+        Return (node_name, cmake_options, project_path, inherit_index, inherit_attrs) as a tuple.
         node_name  : str
         cmake_opts : list of str
         proj_path  : str
+        inherit_attrs : list of str
         """
         node_name = self.node_name_edit.text().strip()
         cmake_opts = []
@@ -153,9 +167,5 @@ class NodeCreationDialog(QDialog):
                 cmake_opts.append(val)
         proj_path = self.project_path_edit.text().strip()
         inherit_index = self.inherit_combo.currentIndex() - 1
-        flags = {
-            "project": self.chk_inherit_proj.isChecked(),
-            "options": self.chk_inherit_opts.isChecked(),
-            "build": self.chk_inherit_build.isChecked(),
-        }
-        return node_name, cmake_opts, proj_path, inherit_index, flags
+        attrs = [cb.text() for cb in self.attr_checkboxes if cb.isChecked()]
+        return node_name, cmake_opts, proj_path, inherit_index, attrs

@@ -150,7 +150,9 @@ def worker_main(task_queue: Queue, result_queue: Queue):
                     if build_failed:
                         break
 
-                if not build_failed:
+                if build_failed:
+                    result_queue.put(SubprocessResponseData(index=-1, result=False))
+                else:
                     result_queue.put(SubprocessLogData(index=-1, log="[Worker] All commands succeeded!"))
                     result_queue.put(SubprocessResponseData(index=-1, result=True))
 
