@@ -133,6 +133,7 @@ class NodeEditorWindow(QMainWindow):
         self.initBuildOutputDock()
         self.initPropertiesDock()
         self.initTopologyDock()
+        self.initBuildControlDock()
 
         # Setup other UI pieces
         self.initNodePropertiesUI()
@@ -193,6 +194,27 @@ class NodeEditorWindow(QMainWindow):
         self.topology_view.setReadOnly(True)
         self.dock_topology.setWidget(self.topology_view)
         self.addDockWidget(Qt.DockWidgetArea.LeftDockWidgetArea, self.dock_topology)
+
+    def initBuildControlDock(self):
+        """
+        Dock that holds global build controls like the start node ID and build button.
+        """
+        self.dock_build_ctrl = QDockWidget("Build Controls", self)
+        widget = QWidget()
+        layout = QVBoxLayout(widget)
+
+        form = QFormLayout()
+        self.edit_start_node_id = QLineEdit()
+        form.addRow("Start Node ID:", self.edit_start_node_id)
+        layout.addLayout(form)
+
+        self.btn_build_all = QPushButton("Start Build")
+        self.btn_build_all.clicked.connect(lambda: self.onBuildAll())
+        layout.addWidget(self.btn_build_all)
+
+        layout.addStretch()
+        self.dock_build_ctrl.setWidget(widget)
+        self.addDockWidget(Qt.DockWidgetArea.RightDockWidgetArea, self.dock_build_ctrl)
 
     # ----------------------------------------------------------------
     # Window events
@@ -573,6 +595,7 @@ class NodeEditorWindow(QMainWindow):
 
         start_id = None
         start_index = 0
+        start_node_id_str = self.edit_start_node_id.text().strip()
         if start_node_id_str:
             try:
                 sid = int(start_node_id_str)
