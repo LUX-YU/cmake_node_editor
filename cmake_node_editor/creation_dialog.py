@@ -4,7 +4,7 @@ from PyQt6.QtCore import Qt
 from PyQt6.QtWidgets import (
     QDialog, QLabel, QLineEdit, QPushButton, QVBoxLayout, QHBoxLayout,
     QFormLayout, QWidget, QFileDialog, QMessageBox, QDialogButtonBox,
-    QScrollArea
+    QScrollArea, QCheckBox, QComboBox
 )
 
 class NodeCreationDialog(QDialog):
@@ -14,8 +14,9 @@ class NodeCreationDialog(QDialog):
       - Multiple CMake options
       - A target project folder (containing a CMakeLists.txt)
     """
-    def __init__(self, parent=None):
+    def __init__(self, parent=None, existing_nodes=None):
         super().__init__(parent)
+        self.existing_nodes = existing_nodes if existing_nodes else []
         self.setWindowTitle("Create New Node")
         self.resize(500, 350)
 
@@ -24,21 +25,36 @@ class NodeCreationDialog(QDialog):
         self.node_options_layout = QVBoxLayout()
         self.option_rows = []
 
+        # Inheritance options
+        self.inherit_combo = QComboBox()
+        self.inherit_combo.addItem("None")
+        for n in self.existing_nodes:
+            self.inherit_combo.addItem(n.title())
+        self.chk_inherit_proj = QCheckBox("Project Path")
+        self.chk_inherit_opts = QCheckBox("CMake Options")
+        self.chk_inherit_build = QCheckBox("Build Settings")
+
         # Project path
         self.project_path_edit = QLineEdit()
         self.btn_browse_project = QPushButton("Browse Folder")
-        self.btn_browse_project.clicked.connect(self.onBrowseProject)
+        self.btn_browse_project.clicked.connect(lambda: self.onBrowseProject())
 
         # Initially add one empty CMake option
         self.addOptionEdit()
 
         # "Add Option" button
         self.btn_add_option = QPushButton("Add CMake Option")
-        self.btn_add_option.clicked.connect(self.addOptionEdit)
+        self.btn_add_option.clicked.connect(lambda: self.addOptionEdit())
 
         # Build a form layout
         form = QFormLayout()
         form.addRow("Node Name:", self.node_name_edit)
+        form.addRow("Inherit From:", self.inherit_combo)
+        inherit_layout = QHBoxLayout()
+        inherit_layout.addWidget(self.chk_inherit_proj)
+        inherit_layout.addWidget(self.chk_inherit_opts)
+        inherit_layout.addWidget(self.chk_inherit_build)
+        form.addRow("Copy Options:", inherit_layout)
 
         # Row for project path + browse button
         proj_path_layout = QHBoxLayout()
@@ -109,20 +125,22 @@ class NodeCreationDialog(QDialog):
         When user clicks OK, ensure the project folder is valid and has CMakeLists.txt.
         """
         proj_path = self.project_path_edit.text().strip()
-        if not os.path.isdir(proj_path):
-            QMessageBox.critical(self, "Error", "Please select a valid project folder.")
-            return
+        inherit_proj = self.chk_inherit_proj.isChecked() and self.inherit_combo.currentIndex() > 0
+        if not inherit_proj:
+            if not os.path.isdir(proj_path):
+                QMessageBox.critical(self, "Error", "Please select a valid project folder.")
+                return
 
-        cmakelists_file = os.path.join(proj_path, "CMakeLists.txt")
-        if not os.path.exists(cmakelists_file):
-            QMessageBox.critical(self, "Error", "No CMakeLists.txt found in that folder.")
-            return
+            cmakelists_file = os.path.join(proj_path, "CMakeLists.txt")
+            if not os.path.exists(cmakelists_file):
+                QMessageBox.critical(self, "Error", "No CMakeLists.txt found in that folder.")
+                return
 
         self.accept()
 
     def getNodeData(self):
         """
-        Return (node_name, cmake_options, project_path) as a tuple.
+        Return (node_name, cmake_options, project_path, inherit_index, inherit_flags) as a tuple.
         node_name  : str
         cmake_opts : list of str
         proj_path  : str
@@ -134,4 +152,10 @@ class NodeCreationDialog(QDialog):
             if val:
                 cmake_opts.append(val)
         proj_path = self.project_path_edit.text().strip()
-        return node_name, cmake_opts, proj_path
+        inherit_index = self.inherit_combo.currentIndex() - 1
+        flags = {
+            "project": self.chk_inherit_proj.isChecked(),
+            "options": self.chk_inherit_opts.isChecked(),
+            "build": self.chk_inherit_build.isChecked(),
+        }
+        return node_name, cmake_opts, proj_path, inherit_index, flags

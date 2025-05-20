@@ -13,7 +13,7 @@ from PyQt6.QtWidgets import (
 from .node_scene import NodeScene, NodeItem
 from .datas import (
     ProjectCommands, NodeCommands, CommandData,
-    GlobalConfigData, SubprocessLogData, SubprocessResponseData
+    BuildSettings, SubprocessLogData, SubprocessResponseData
 )
 from .creation_dialog import NodeCreationDialog
 from .worker import worker_main
@@ -117,14 +117,14 @@ class NodeEditorWindow(QMainWindow):
         self.setCentralWidget(self.view)
 
         # Prepare dock widgets
+
         self.initBuildOutputDock()
         self.initPropertiesDock()
-        self.initGlobalBuildDock()
         self.initTopologyDock()
+        self.initBuildControlDock()
 
         # Setup other UI pieces
         self.initNodePropertiesUI()
-        self.initGlobalBuildUI()
         self.initMenu()
 
         # Connect scene signals
@@ -170,16 +170,8 @@ class NodeEditorWindow(QMainWindow):
 
         self.dock_properties.setWidget(self.properties_scroll)
         self.addDockWidget(Qt.DockWidgetArea.RightDockWidgetArea, self.dock_properties)
+        self.dock_properties.hide()
 
-    def initGlobalBuildDock(self):
-        """
-        Dock for global build settings.
-        """
-        self.dock_build = QDockWidget("Global Build Settings", self)
-        self.build_widget = QWidget()
-        self.build_layout = QFormLayout(self.build_widget)
-        self.dock_build.setWidget(self.build_widget)
-        self.addDockWidget(Qt.DockWidgetArea.BottomDockWidgetArea, self.dock_build)
 
     def initTopologyDock(self):
         """
@@ -190,6 +182,27 @@ class NodeEditorWindow(QMainWindow):
         self.topology_view.setReadOnly(True)
         self.dock_topology.setWidget(self.topology_view)
         self.addDockWidget(Qt.DockWidgetArea.LeftDockWidgetArea, self.dock_topology)
+
+    def initBuildControlDock(self):
+        """
+        Dock that holds global build controls like the start node ID and build button.
+        """
+        self.dock_build_ctrl = QDockWidget("Build Controls", self)
+        widget = QWidget()
+        layout = QVBoxLayout(widget)
+
+        form = QFormLayout()
+        self.edit_start_node_id = QLineEdit()
+        form.addRow("Start Node ID:", self.edit_start_node_id)
+        layout.addLayout(form)
+
+        self.btn_build_all = QPushButton("Start Build")
+        self.btn_build_all.clicked.connect(lambda: self.onBuildAll())
+        layout.addWidget(self.btn_build_all)
+
+        layout.addStretch()
+        self.dock_build_ctrl.setWidget(widget)
+        self.addDockWidget(Qt.DockWidgetArea.RightDockWidgetArea, self.dock_build_ctrl)
 
     # ----------------------------------------------------------------
     # Window events
@@ -240,18 +253,10 @@ class NodeEditorWindow(QMainWindow):
             return
 
         global_cfg = {
-            "build_dir": self.edit_build_dir.text().strip(),
-            "install_dir": self.edit_install_dir.text().strip(),
-            "build_type": self.combo_build_type.currentText(),
-            "prefix_path": self.edit_prefix_path.text().strip(),
-            "toolchain": self.edit_toolchain.text().strip(),
-            "generator": self.combo_generator.currentText(),
-            "start_node_id": self.edit_start_node_id.text().strip(),
-            "c_compiler": self.edit_c_compiler.text().strip(),
-            "cxx_compiler": self.edit_cxx_compiler.text().strip()
+            "start_node_id": self.edit_start_node_id.text().strip()
         }
 
-        self.scene.saveProjectToJson(filepath, global_cfg)
+        self.scene.saveProjectToJson(filepath, global_cfg.get("start_node_id"))
         QMessageBox.information(self, "Info", "Project has been saved!")
 
     def onLoadProject(self):
@@ -271,74 +276,8 @@ class NodeEditorWindow(QMainWindow):
         """
         Restore global build settings from the loaded dict.
         """
-        self.edit_build_dir.setText(global_cfg.get("build_dir", os.path.join(os.getcwd(), "build")))
-        self.edit_install_dir.setText(global_cfg.get("install_dir", os.path.join(os.getcwd(), "install")))
-
-        build_type = global_cfg.get("build_type", "Debug")
-        idx = self.combo_build_type.findText(build_type)
-        if idx >= 0:
-            self.combo_build_type.setCurrentIndex(idx)
-        else:
-            self.combo_build_type.setCurrentText(build_type)
-
-        self.edit_prefix_path.setText(global_cfg.get("prefix_path", os.path.join(os.getcwd(), "install")))
-        self.edit_toolchain.setText(global_cfg.get("toolchain", ""))
-
-        gen = global_cfg.get("generator", "Default (not specified)")
-        idx_gen = self.combo_generator.findText(gen)
-        if idx_gen >= 0:
-            self.combo_generator.setCurrentIndex(idx_gen)
-        else:
-            self.combo_generator.setCurrentText(gen)
-
         self.edit_start_node_id.setText(global_cfg.get("start_node_id", ""))
-        self.edit_c_compiler.setText(global_cfg.get("c_compiler", ""))
-        self.edit_cxx_compiler.setText(global_cfg.get("cxx_compiler", ""))
 
-    # ----------------------------------------------------------------
-    # Global build settings UI
-    # ----------------------------------------------------------------
-    def initGlobalBuildUI(self):
-        """
-        Setup controls for global build settings in self.build_layout
-        """
-        self.edit_build_dir = QLineEdit(os.path.join(os.getcwd(), "build"))
-        self.build_layout.addRow("Build Directory:", self.edit_build_dir)
-
-        self.combo_build_type = QComboBox()
-        self.combo_build_type.addItems(["Debug", "Release", "RelWithDebInfo", "MinSizeRel"])
-        self.build_layout.addRow("Build Type:", self.combo_build_type)
-
-        self.edit_install_dir = QLineEdit(os.path.join(os.getcwd(), "install"))
-        self.build_layout.addRow("Install Directory:", self.edit_install_dir)
-
-        self.edit_prefix_path = QLineEdit(os.path.join(os.getcwd(), "install"))
-        self.build_layout.addRow("PREFIX_PATH:", self.edit_prefix_path)
-
-        self.edit_toolchain = QLineEdit()
-        self.build_layout.addRow("Toolchain File:", self.edit_toolchain)
-
-        self.combo_generator = QComboBox()
-        self.combo_generator.addItem("Default (not specified)")
-        self.combo_generator.addItems([
-            "Visual Studio 17 2022", "Visual Studio 16 2019", 
-            "Ninja", "Unix Makefiles", 
-            # ... etc ...
-        ])
-        self.build_layout.addRow("CMake Generator:", self.combo_generator)
-        
-        self.edit_c_compiler = QLineEdit()
-        self.build_layout.addRow("C Compiler (CMAKE_C_COMPILER):", self.edit_c_compiler)
-
-        self.edit_cxx_compiler = QLineEdit()
-        self.build_layout.addRow("C++ Compiler (CMAKE_CXX_COMPILER):", self.edit_cxx_compiler)
-
-        self.edit_start_node_id = QLineEdit()
-        self.build_layout.addRow("Start Node ID:", self.edit_start_node_id)
-
-        self.btn_build_all = QPushButton("Start Build")
-        self.btn_build_all.clicked.connect(self.onBuildAll)
-        self.build_layout.addWidget(self.btn_build_all)
 
     # ----------------------------------------------------------------
     # Node Properties UI
@@ -346,11 +285,11 @@ class NodeEditorWindow(QMainWindow):
     def initNodePropertiesUI(self):
         # Buttons for creating/deleting nodes
         self.btn_new_node = QPushButton("New Node")
-        self.btn_new_node.clicked.connect(self.onAddNodeDialog)
+        self.btn_new_node.clicked.connect(lambda: self.onAddNodeDialog())
         self.properties_layout.addWidget(self.btn_new_node)
 
         self.btn_delete_node = QPushButton("Delete Node")
-        self.btn_delete_node.clicked.connect(self.onDeleteNode)
+        self.btn_delete_node.clicked.connect(lambda: self.onDeleteNode())
         self.properties_layout.addWidget(self.btn_delete_node)
 
         self.properties_layout.addWidget(QLabel("----- Node Properties -----"))
@@ -370,7 +309,7 @@ class NodeEditorWindow(QMainWindow):
         self.cmake_option_rows = []
         btn_row = QHBoxLayout()
         self.btn_add_cmake_opt = QPushButton("Add CMake Option")
-        self.btn_add_cmake_opt.clicked.connect(self.onAddCMakeOptionField)
+        self.btn_add_cmake_opt.clicked.connect(lambda: self.onAddCMakeOptionField())
         btn_row.addWidget(self.btn_add_cmake_opt)
         self.cmake_option_layout.addLayout(btn_row)
 
@@ -382,6 +321,40 @@ class NodeEditorWindow(QMainWindow):
 
         self.properties_layout.addWidget(option_scroll)
 
+        # Build settings
+        form_build = QFormLayout()
+        self.edit_build_dir = QLineEdit(os.path.join(os.getcwd(), "build"))
+        form_build.addRow("Build Directory:", self.edit_build_dir)
+
+        self.combo_build_type = QComboBox()
+        self.combo_build_type.addItems(["Debug", "Release", "RelWithDebInfo", "MinSizeRel"])
+        form_build.addRow("Build Type:", self.combo_build_type)
+
+        self.edit_install_dir = QLineEdit(os.path.join(os.getcwd(), "install"))
+        form_build.addRow("Install Directory:", self.edit_install_dir)
+
+        self.edit_prefix_path = QLineEdit(os.path.join(os.getcwd(), "install"))
+        form_build.addRow("PREFIX_PATH:", self.edit_prefix_path)
+
+        self.edit_toolchain = QLineEdit()
+        form_build.addRow("Toolchain File:", self.edit_toolchain)
+
+        self.combo_generator = QComboBox()
+        self.combo_generator.addItem("Default (not specified)")
+        self.combo_generator.addItems([
+            "Visual Studio 17 2022", "Visual Studio 16 2019",
+            "Ninja", "Unix Makefiles",
+        ])
+        form_build.addRow("CMake Generator:", self.combo_generator)
+
+        self.edit_c_compiler = QLineEdit()
+        form_build.addRow("C Compiler:", self.edit_c_compiler)
+
+        self.edit_cxx_compiler = QLineEdit()
+        form_build.addRow("C++ Compiler:", self.edit_cxx_compiler)
+
+        self.properties_layout.addLayout(form_build)
+
         self.properties_layout.addWidget(QLabel("Pre-Build Script (py_code_before_build):"))
         self.edit_py_before = QPlainTextEdit()
         self.properties_layout.addWidget(self.edit_py_before)
@@ -391,7 +364,7 @@ class NodeEditorWindow(QMainWindow):
         self.properties_layout.addWidget(self.edit_py_after)
 
         self.btn_apply_properties = QPushButton("Apply Node Properties")
-        self.btn_apply_properties.clicked.connect(self.onApplyNodeProperties)
+        self.btn_apply_properties.clicked.connect(lambda: self.onApplyNodeProperties())
         self.properties_layout.addWidget(self.btn_apply_properties)
 
         self.properties_layout.addStretch()
@@ -431,15 +404,31 @@ class NodeEditorWindow(QMainWindow):
     # Node operations
     # ----------------------------------------------------------------
     def onAddNodeDialog(self):
-        dlg = NodeCreationDialog(self)
+        dlg = NodeCreationDialog(self, existing_nodes=self.scene.nodes)
         if dlg.exec() == dlg.DialogCode.Accepted:
-            node_name, opts, proj_path = dlg.getNodeData()
+            node_name, opts, proj_path, inherit_idx, flags = dlg.getNodeData()
+            if inherit_idx >= 0 and inherit_idx < len(self.scene.nodes):
+                base_node = self.scene.nodes[inherit_idx]
+            else:
+                base_node = None
+            if base_node:
+                if flags.get("project"):
+                    proj_path = base_node.projectPath()
+                if flags.get("options"):
+                    opts = list(base_node.cmakeOptions())
+                if flags.get("build"):
+                    bs = base_node.buildSettings()
+                else:
+                    bs = None
+            else:
+                bs = None
+
             if not node_name:
                 node_name = f"Node_{self.scene.nodeCounter}"
             if any(n.title() == node_name for n in self.scene.nodes):
                 QMessageBox.warning(self, "Warning", f"Node name '{node_name}' already exists.")
                 return
-            new_node = self.scene.addNewNode(node_name, opts, proj_path)
+            new_node = self.scene.addNewNode(node_name, opts, proj_path, bs)
             self.scene.clearSelection()
             new_node.setSelected(True)
 
@@ -454,9 +443,11 @@ class NodeEditorWindow(QMainWindow):
         if sel_items and isinstance(sel_items[0], NodeItem):
             self.current_node = sel_items[0]
             self.updatePropertiesPanelFromNode()
+            self.dock_properties.show()
         else:
             self.current_node = None
             self.clearPropertiesPanel()
+            self.dock_properties.hide()
 
     def clearPropertiesPanel(self):
         self.edit_node_name.clear()
@@ -465,6 +456,14 @@ class NodeEditorWindow(QMainWindow):
             self.cmake_option_layout.removeWidget(row_w)
             row_w.deleteLater()
         self.cmake_option_rows = []
+        self.edit_build_dir.clear()
+        self.edit_install_dir.clear()
+        self.edit_prefix_path.clear()
+        self.edit_toolchain.clear()
+        self.edit_c_compiler.clear()
+        self.edit_cxx_compiler.clear()
+        self.edit_py_before.clear()
+        self.edit_py_after.clear()
 
     def updatePropertiesPanelFromNode(self):
         if not self.current_node:
@@ -479,7 +478,25 @@ class NodeEditorWindow(QMainWindow):
             row_widget, line_edit = self.createOptionRow(opt)
             self.cmake_option_rows.append((row_widget, line_edit))
             self.cmake_option_layout.insertWidget(len(self.cmake_option_rows)-1, row_widget)
-            
+
+        bs = self.current_node.buildSettings()
+        self.edit_build_dir.setText(bs.build_dir)
+        idx_bt = self.combo_build_type.findText(bs.build_type)
+        if idx_bt >= 0:
+            self.combo_build_type.setCurrentIndex(idx_bt)
+        else:
+            self.combo_build_type.setCurrentText(bs.build_type)
+        self.edit_install_dir.setText(bs.install_dir)
+        self.edit_prefix_path.setText(bs.prefix_path)
+        self.edit_toolchain.setText(bs.toolchain_file)
+        gen_idx = self.combo_generator.findText(bs.generator)
+        if gen_idx >= 0:
+            self.combo_generator.setCurrentIndex(gen_idx)
+        else:
+            self.combo_generator.setCurrentText(bs.generator)
+        self.edit_c_compiler.setText(bs.c_compiler)
+        self.edit_cxx_compiler.setText(bs.cxx_compiler)
+
         self.edit_py_before.setPlainText(self.current_node.codeBeforeBuild())
         self.edit_py_after.setPlainText(self.current_node.codeAfterInstall())
 
@@ -505,6 +522,18 @@ class NodeEditorWindow(QMainWindow):
 
         new_proj_path = self.edit_node_project_path.text().strip()
         self.current_node.setProjectPath(new_proj_path)
+
+        bs = BuildSettings(
+            build_dir=self.edit_build_dir.text().strip(),
+            install_dir=self.edit_install_dir.text().strip(),
+            build_type=self.combo_build_type.currentText(),
+            prefix_path=self.edit_prefix_path.text().strip(),
+            toolchain_file=self.edit_toolchain.text().strip(),
+            generator=self.combo_generator.currentText(),
+            c_compiler=self.edit_c_compiler.text().strip(),
+            cxx_compiler=self.edit_cxx_compiler.text().strip(),
+        )
+        self.current_node.setBuildSettings(bs)
 
         self.current_node.setCodeBeforeBuild(self.edit_py_before.toPlainText())
         self.current_node.setCodeAfterInstall(self.edit_py_after.toPlainText())
@@ -532,28 +561,15 @@ class NodeEditorWindow(QMainWindow):
         """
         self.build_output_text.clear()
 
-        # Global config
-        build_root    = self.edit_build_dir.text().strip()
-        install_root  = self.edit_install_dir.text().strip()
-        build_type    = self.combo_build_type.currentText()
-        toolchain_path= self.edit_toolchain.text().strip()
-        prefix_path   = self.edit_prefix_path.text().strip()
-        c_compiler    = self.edit_c_compiler.text().strip()
-        cxx_compiler  = self.edit_cxx_compiler.text().strip() 
-
-        generator = self.combo_generator.currentText()
-        if generator.startswith("Default"):
-            generator = ""
-
         # Topological sort
         sorted_nodes = self.scene.topologicalSort()
         if sorted_nodes is None:
             QMessageBox.critical(self, "Error", "Detected circular dependency, cannot build.")
             return
 
-        start_node_id_str = self.edit_start_node_id.text().strip()
         start_id = None
         start_index = 0
+        start_node_id_str = self.edit_start_node_id.text().strip()
         if start_node_id_str:
             try:
                 sid = int(start_node_id_str)
@@ -567,27 +583,24 @@ class NodeEditorWindow(QMainWindow):
             except ValueError:
                 QMessageBox.warning(self, "Warning", f"Start Node ID '{start_node_id_str}' invalid, building from beginning.")
 
-        # Build the ProjectCommands
-        global_cfg_data = GlobalConfigData(
-            build_dir=build_root,
-            install_dir=install_root,
-            build_type=build_type,
-            prefix_path=prefix_path,
-            toolchain_file=toolchain_path,
-            generator=generator,
-            start_node_id=start_id if start_id is not None else -1,
-            c_compiler=c_compiler,
-            cxx_compiler=cxx_compiler
-        )
-
         project_commands = ProjectCommands(
-            global_config_data = global_cfg_data,
-            node_commands_list = []
+            start_node_id=start_id if start_id is not None else -1,
+            node_commands_list=[]
         )
 
         # For each node in sorted order, build NodeCommands & CommandData
         for node_obj in sorted_nodes[start_index:]:
             node_cmd = NodeCommands(index=node_obj.id(), node_data=node_obj.nodeData(), cmd_list=[])
+
+            bs = node_obj.buildSettings()
+            build_root = bs.build_dir
+            install_root = bs.install_dir
+            build_type = bs.build_type
+            toolchain_path = bs.toolchain_file
+            prefix_path = bs.prefix_path
+            generator = bs.generator
+            c_compiler = bs.c_compiler
+            cxx_compiler = bs.cxx_compiler
 
             # Pre-build script
             if node_obj.codeBeforeBuild().strip():
@@ -624,10 +637,10 @@ class NodeEditorWindow(QMainWindow):
             ]
             if generator:
                 cmd_configure[1:1] = ["-G", generator]
-            if global_cfg_data.c_compiler:
-                cmd_configure.append(f"-DCMAKE_C_COMPILER:FILEPATH={global_cfg_data.c_compiler}")
-            if global_cfg_data.cxx_compiler:
-                cmd_configure.append(f"-DCMAKE_CXX_COMPILER:FILEPATH={global_cfg_data.cxx_compiler}")
+            if c_compiler:
+                cmd_configure.append(f"-DCMAKE_C_COMPILER:FILEPATH={c_compiler}")
+            if cxx_compiler:
+                cmd_configure.append(f"-DCMAKE_CXX_COMPILER:FILEPATH={cxx_compiler}")
             if toolchain_path:
                 cmd_configure.append(f"-DCMAKE_TOOLCHAIN_FILE={toolchain_path}")
             if prefix_path:

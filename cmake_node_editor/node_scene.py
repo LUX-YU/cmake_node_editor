@@ -10,7 +10,7 @@ from PyQt6.QtWidgets import (
 )
 
 from dataclasses import asdict
-from .datas import NodeData, EdgeData
+from .datas import NodeData, EdgeData, BuildSettings
 
 
 class Pin(QGraphicsRectItem):
@@ -178,6 +178,14 @@ class NodeItem(QGraphicsRectItem):
         # Initialize NodeData
         if data is None:
             # If no NodeData was provided, create one
+            default_bs = BuildSettings(
+                build_dir=os.path.join(os.getcwd(), "build"),
+                install_dir=os.path.join(os.getcwd(), "install"),
+                build_type="Debug",
+                prefix_path=os.path.join(os.getcwd(), "install"),
+                toolchain_file="",
+                generator="",
+            )
             self._data = NodeData(
                 node_id=node_id,
                 title=title,
@@ -185,6 +193,7 @@ class NodeItem(QGraphicsRectItem):
                 pos_y=0,
                 cmake_options=cmake_options if cmake_options else [],
                 project_path=project_path,
+                build_settings=default_bs,
                 code_before_build="",
                 code_after_install=""
             )
@@ -289,6 +298,12 @@ class NodeItem(QGraphicsRectItem):
     def projectPath(self):
         return self._data.project_path
 
+    def buildSettings(self) -> BuildSettings:
+        return self._data.build_settings
+
+    def setBuildSettings(self, bs: BuildSettings):
+        self._data.build_settings = bs
+
     def codeBeforeBuild(self):
         return self._data.code_before_build
 
@@ -331,16 +346,28 @@ class NodeScene(QGraphicsScene):
         if self.topology_changed_callback:
             self.topology_changed_callback()
 
-    def addNewNode(self, title, cmake_options, project_path):
+    def addNewNode(self, title, cmake_options, project_path, build_settings=None):
         """
         Create a new NodeItem, place it in the scene, and update topology.
         """
         node_id = NodeScene.nodeCounter
         NodeScene.nodeCounter += 1
-        new_node = NodeItem(node_id=node_id, 
+        if build_settings is None:
+            build_settings = BuildSettings(
+                build_dir=os.path.join(os.getcwd(), "build"),
+                install_dir=os.path.join(os.getcwd(), "install"),
+                build_type="Debug",
+                prefix_path=os.path.join(os.getcwd(), "install"),
+                toolchain_file="",
+                generator="",
+            )
+        new_node = NodeItem(node_id=node_id,
                             title=title,
-                            cmake_options=cmake_options, 
-                            project_path=project_path)
+                            cmake_options=cmake_options,
+                            project_path=project_path,
+                            data=None)
+        # Override build settings
+        new_node.setBuildSettings(build_settings)
         new_node.setPos(100, 100)
         new_node.nodeData().pos_x = 100
         new_node.nodeData().pos_y = 100
@@ -430,7 +457,7 @@ class NodeScene(QGraphicsScene):
             return None
         return result
 
-    def saveProjectToJson(self, filepath, global_config=None):
+    def saveProjectToJson(self, filepath, start_node_id=None):
         """
         Save this scene to a JSON file.
         Includes:
@@ -439,7 +466,7 @@ class NodeScene(QGraphicsScene):
          - edge data
         """
         data = {
-            "global": global_config if global_config else {},
+            "global": {"start_node_id": start_node_id} if start_node_id is not None else {},
             "nodes": [],
             "edges": []
         }
@@ -478,7 +505,28 @@ class NodeScene(QGraphicsScene):
         node_map = {}
         # Recreate nodes
         for nd in data.get("nodes", []):
-            node_data = NodeData(**nd)
+            bs_dict = nd.get("build_settings", {})
+            bs = BuildSettings(
+                build_dir=bs_dict.get("build_dir", os.path.join(os.getcwd(), "build")),
+                install_dir=bs_dict.get("install_dir", os.path.join(os.getcwd(), "install")),
+                build_type=bs_dict.get("build_type", "Debug"),
+                prefix_path=bs_dict.get("prefix_path", os.path.join(os.getcwd(), "install")),
+                toolchain_file=bs_dict.get("toolchain_file", ""),
+                generator=bs_dict.get("generator", ""),
+                c_compiler=bs_dict.get("c_compiler", ""),
+                cxx_compiler=bs_dict.get("cxx_compiler", ""),
+            )
+            node_data = NodeData(
+                node_id=nd["node_id"],
+                title=nd["title"],
+                pos_x=nd["pos_x"],
+                pos_y=nd["pos_y"],
+                cmake_options=nd.get("cmake_options", []),
+                project_path=nd.get("project_path", ""),
+                build_settings=bs,
+                code_before_build=nd.get("code_before_build", ""),
+                code_after_install=nd.get("code_after_install", ""),
+            )
             node_item = NodeItem(data=node_data)
             self.addItem(node_item)
             self.nodes.append(node_item)
