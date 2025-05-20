@@ -7,7 +7,7 @@ from PyQt6.QtGui import QPainter, QWheelEvent, QPainter, QMouseEvent
 from PyQt6.QtWidgets import (
     QMainWindow, QDockWidget, QWidget, QFormLayout, QVBoxLayout, QHBoxLayout,
     QPlainTextEdit, QLineEdit, QPushButton, QLabel, QComboBox, QMessageBox,
-    QFileDialog, QGraphicsView, QScrollArea
+    QFileDialog, QGraphicsView, QScrollArea, QProgressBar, QInputDialog, QMenu
 )
 
 from .node_scene import NodeScene, NodeItem
@@ -81,6 +81,7 @@ class NodeView(QGraphicsView):
             self._panning = True
             self._press_pos = event.pos()
             self._last_mouse_pos = event.pos()
+            self._press_pos = event.pos()
             self.setCursor(Qt.CursorShape.ClosedHandCursor)
         else:
             super().mousePressEvent(event)
@@ -96,6 +97,7 @@ class NodeView(QGraphicsView):
 
     def mouseReleaseEvent(self, event: QMouseEvent):
         if event.button() == Qt.MouseButton.RightButton:
+            moved = (event.pos() - self._press_pos).manhattanLength() if self._press_pos else 0
             self._panning = False
             if (event.pos() - self._press_pos).manhattanLength() < 5:
                 from PyQt6.QtWidgets import QMenu
@@ -105,8 +107,26 @@ class NodeView(QGraphicsView):
                 if chosen == act_create:
                     self.nodeCreateRequested.emit()
             self.setCursor(Qt.CursorShape.ArrowCursor)
+            self._press_pos = None
+            if moved < 4:
+                menu = QMenu(self)
+                act_create = menu.addAction("Create Node")
+                chosen = menu.exec(event.globalPosition().toPoint())
+                if chosen == act_create:
+                    win = self.window()
+                    if hasattr(win, "onAddNodeDialog"):
+                        win.onAddNodeDialog()
         else:
             super().mouseReleaseEvent(event)
+
+    def showContextMenu(self, pos):
+        menu = QMenu(self)
+        act_new = menu.addAction("Create Node")
+        action = menu.exec(self.mapToGlobal(pos))
+        if action == act_new:
+            main = self.window()
+            if hasattr(main, "onAddNodeDialog"):
+                main.onAddNodeDialog()
 
 class NodeEditorWindow(QMainWindow):
     """
@@ -132,13 +152,17 @@ class NodeEditorWindow(QMainWindow):
         # Prepare dock widgets
 
         self.initBuildOutputDock()
+        self.initBuildControlsDock()
         self.initPropertiesDock()
+
         self.initBuildControlsDock()
         self.initTopologyDock()
+        self.initBuildControlDock()
 
         # Setup other UI pieces
         self.initNodePropertiesUI()
         self.initMenu()
+        self.initStatusBar()
 
         # Connect scene signals
         self.current_node = None
@@ -168,6 +192,22 @@ class NodeEditorWindow(QMainWindow):
         self.build_output_text.setReadOnly(True)
         self.dock_build_output.setWidget(self.build_output_text)
         self.addDockWidget(Qt.DockWidgetArea.BottomDockWidgetArea, self.dock_build_output)
+
+    def initBuildControlsDock(self):
+        """Dock containing global build controls."""
+        self.dock_build_controls = QDockWidget("Build Controls", self)
+        widget = QWidget()
+        layout = QFormLayout(widget)
+
+        self.edit_start_node_id = QLineEdit()
+        layout.addRow("Start Node ID:", self.edit_start_node_id)
+
+        self.btn_build_all = QPushButton("Start Build")
+        self.btn_build_all.clicked.connect(lambda: self.onBuildAll())
+        layout.addWidget(self.btn_build_all)
+
+        self.dock_build_controls.setWidget(widget)
+        self.addDockWidget(Qt.DockWidgetArea.BottomDockWidgetArea, self.dock_build_controls)
 
     def initPropertiesDock(self):
         """
@@ -208,6 +248,27 @@ class NodeEditorWindow(QMainWindow):
         self.topology_view.setReadOnly(True)
         self.dock_topology.setWidget(self.topology_view)
         self.addDockWidget(Qt.DockWidgetArea.LeftDockWidgetArea, self.dock_topology)
+
+    def initBuildControlDock(self):
+        """
+        Dock that holds global build controls like the start node ID and build button.
+        """
+        self.dock_build_ctrl = QDockWidget("Build Controls", self)
+        widget = QWidget()
+        layout = QVBoxLayout(widget)
+
+        form = QFormLayout()
+        self.edit_start_node_id = QLineEdit()
+        form.addRow("Start Node ID:", self.edit_start_node_id)
+        layout.addLayout(form)
+
+        self.btn_build_all = QPushButton("Start Build")
+        self.btn_build_all.clicked.connect(lambda: self.onBuildAll())
+        layout.addWidget(self.btn_build_all)
+
+        layout.addStretch()
+        self.dock_build_ctrl.setWidget(widget)
+        self.addDockWidget(Qt.DockWidgetArea.RightDockWidgetArea, self.dock_build_ctrl)
 
     # ----------------------------------------------------------------
     # Window events
@@ -313,18 +374,17 @@ class NodeEditorWindow(QMainWindow):
                 break
         self.onBuildAll()
 
-
     # ----------------------------------------------------------------
     # Node Properties UI
     # ----------------------------------------------------------------
     def initNodePropertiesUI(self):
         # Buttons for creating/deleting nodes
         self.btn_new_node = QPushButton("New Node")
-        self.btn_new_node.clicked.connect(self.onAddNodeDialog)
+        self.btn_new_node.clicked.connect(lambda: self.onAddNodeDialog())
         self.properties_layout.addWidget(self.btn_new_node)
 
         self.btn_delete_node = QPushButton("Delete Node")
-        self.btn_delete_node.clicked.connect(self.onDeleteNode)
+        self.btn_delete_node.clicked.connect(lambda: self.onDeleteNode())
         self.properties_layout.addWidget(self.btn_delete_node)
 
         self.properties_layout.addWidget(QLabel("----- Node Properties -----"))
@@ -344,7 +404,7 @@ class NodeEditorWindow(QMainWindow):
         self.cmake_option_rows = []
         btn_row = QHBoxLayout()
         self.btn_add_cmake_opt = QPushButton("Add CMake Option")
-        self.btn_add_cmake_opt.clicked.connect(self.onAddCMakeOptionField)
+        self.btn_add_cmake_opt.clicked.connect(lambda: self.onAddCMakeOptionField())
         btn_row.addWidget(self.btn_add_cmake_opt)
         self.cmake_option_layout.addLayout(btn_row)
 
@@ -403,7 +463,7 @@ class NodeEditorWindow(QMainWindow):
         self.properties_layout.addWidget(self.btn_build_node)
 
         self.btn_apply_properties = QPushButton("Apply Node Properties")
-        self.btn_apply_properties.clicked.connect(self.onApplyNodeProperties)
+        self.btn_apply_properties.clicked.connect(lambda: self.onApplyNodeProperties())
         self.properties_layout.addWidget(self.btn_apply_properties)
 
         self.properties_layout.addStretch()
@@ -593,7 +653,7 @@ class NodeEditorWindow(QMainWindow):
     # ----------------------------------------------------------------
     # Asynchronous build flow
     # ----------------------------------------------------------------
-    def onBuildAll(self):
+    def onBuildAll(self, start_node_name=None, force_first=False):
         """
         Gather global build config, do a topological sort, build a ProjectCommands,
         start the worker process & result thread, then send the commands to the worker.
@@ -866,6 +926,10 @@ class NodeEditorWindow(QMainWindow):
             f"[Worker Response idx={respData.index}] Command {result_str}"
         )
 
+        if respData.index >= 0:
+            self.current_progress += 1
+            self.progress_bar.setValue(self.current_progress)
+
         # If index == -1, means entire build ended.
         if respData.index == -1:
             if respData.result:
@@ -877,4 +941,3 @@ class NodeEditorWindow(QMainWindow):
             self.stopWorkerProcess()
             self.btn_build_all.setEnabled(True)
             self.btn_build_node.setEnabled(True)
-
