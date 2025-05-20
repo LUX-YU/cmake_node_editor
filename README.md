@@ -16,4 +16,4 @@ The "Settings" option in the **File** menu lets you change the application style
 1. **Launch the Application**  
    Open your terminal and run:
    ```bash
-   python -m cmake_node_editor.main
+   python -m cmake_node_editor
