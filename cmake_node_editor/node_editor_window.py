@@ -10,7 +10,7 @@ from PyQt6.QtWidgets import (
     QFileDialog, QGraphicsView, QScrollArea, QProgressBar, QInputDialog, QMenu
 )
 
-from .node_scene import NodeScene, NodeItem
+from .node_scene import NodeScene, NodeItem, Edge
 from .datas import (
     ProjectCommands, NodeCommands, CommandData,
     BuildSettings, SubprocessLogData, SubprocessResponseData
@@ -116,6 +116,18 @@ class NodeView(QGraphicsView):
         action = menu.exec(global_pos)
         if action == act_new:
             self.createNodeRequested.emit()
+
+    def keyPressEvent(self, event):
+        if event.key() in (Qt.Key.Key_Delete, Qt.Key.Key_Backspace):
+            scene = self.scene()
+            for item in scene.selectedItems():
+                if isinstance(item, Edge):
+                    scene.removeEdge(item)
+                elif isinstance(item, NodeItem):
+                    scene.removeNode(item)
+            event.accept()
+        else:
+            super().keyPressEvent(event)
 
 class NodeEditorWindow(QMainWindow):
     """
@@ -345,11 +357,12 @@ class NodeEditorWindow(QMainWindow):
 
     def onSettings(self):
         current_style = QApplication.style().objectName()
-        dlg = SettingsDialog(current_style, self.scene.gridOpacity(), self)
+        dlg = SettingsDialog(current_style, self.scene.gridOpacity(), self.scene.linkColor(), self)
         if dlg.exec():
-            style_name, opacity = dlg.getValues()
+            style_name, opacity, link_color = dlg.getValues()
             QApplication.setStyle(style_name)
             self.scene.setGridOpacity(opacity)
+            self.scene.setLinkColor(link_color)
 
     def onPartialBuild(self):
         names = [n.title() for n in self.scene.nodes]

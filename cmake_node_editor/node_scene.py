@@ -99,20 +99,32 @@ class Pin(QGraphicsRectItem):
 
 
 class Edge(QGraphicsPathItem):
-    """
-    A bezier-curve style connection (edge) between two Pins.
-    If is_temp=True, it represents a temporary edge being dragged.
-    """
+    """Connection between two Pins."""
+
     def __init__(self, source_pin=None, target_pin=None, is_temp=False):
         super().__init__()
-        self.source_pin  = source_pin
+        self.source_pin = source_pin
         self.target_pin = target_pin
         self.is_temp = is_temp
         self.dragging_end = None
 
-        pen = QPen(Qt.GlobalColor.black, 2)
-        self.setPen(pen)
+        self.setFlags(QGraphicsItem.GraphicsItemFlag.ItemIsSelectable)
         self.setZValue(1)
+        self.updateColor()
+
+    def updateColor(self):
+        scene = self.scene()
+        base = scene.link_color if scene else QColor(Qt.GlobalColor.black)
+        pen = QPen(base, 2)
+        if self.isSelected():
+            pen.setColor(base.darker(150))
+            pen.setWidth(3)
+        self.setPen(pen)
+
+    def itemChange(self, change, value):
+        if change == QGraphicsItem.GraphicsItemChange.ItemSelectedHasChanged:
+            self.updateColor()
+        return super().itemChange(change, value)
 
     def setDraggingEnd(self, scene_pos: QPointF):
         """
@@ -336,6 +348,7 @@ class NodeScene(QGraphicsScene):
         self.nodes = []
         self.edges = []
         self.topology_changed_callback = None
+        self.link_color = QColor(Qt.GlobalColor.black)
         self.grid_opacity = 0.5
 
     def drawBackground(self, painter, rect):
@@ -370,6 +383,14 @@ class NodeScene(QGraphicsScene):
 
     def gridOpacity(self) -> float:
         return self.grid_opacity
+
+    def setLinkColor(self, color: QColor):
+        self.link_color = color
+        for e in self.edges:
+            e.updateColor()
+
+    def linkColor(self) -> QColor:
+        return self.link_color
 
     def setTopologyCallback(self, func):
         """
@@ -443,6 +464,7 @@ class NodeScene(QGraphicsScene):
         edge = Edge(source_pin, target_pin, is_temp=False)
         self.addItem(edge)
         self.edges.append(edge)
+        edge.updateColor()
         edge.updatePath()
         self.notifyTopologyChanged()
 
