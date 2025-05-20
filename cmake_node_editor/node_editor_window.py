@@ -17,6 +17,7 @@ from .datas import (
 )
 from .creation_dialog import NodeCreationDialog
 from .settings_dialog import SettingsDialog
+from .node_properties_dialog import NodePropertiesDialog
 from .worker import worker_main
 
 class ResultListenerThread(QThread):
@@ -103,19 +104,29 @@ class NodeView(QGraphicsView):
             self.setCursor(Qt.CursorShape.ArrowCursor)
             self._press_pos = None
             if moved < 4:
-                self.openContextMenu(event.globalPosition().toPoint())
+                self.openContextMenu(event.globalPosition().toPoint(), event.pos())
         else:
             super(NodeView, self).mouseReleaseEvent(event)
 
     def showContextMenu(self, pos):
-        self.openContextMenu(self.mapToGlobal(pos))
+        self.openContextMenu(self.mapToGlobal(pos), pos)
 
-    def openContextMenu(self, global_pos):
+    def openContextMenu(self, global_pos, view_pos):
+        scene_pos = self.mapToScene(view_pos)
+        item = self.scene().itemAt(scene_pos, self.transform())
         menu = QMenu(self)
-        act_new = menu.addAction("Create Node")
-        action = menu.exec(global_pos)
-        if action == act_new:
-            self.createNodeRequested.emit()
+        if isinstance(item, NodeItem):
+            act_prop = menu.addAction("Properties")
+            action = menu.exec(global_pos)
+            if action == act_prop:
+                parent = self.parent()
+                if parent and hasattr(parent, 'openNodePropertyDialog'):
+                    parent.openNodePropertyDialog(item)
+        else:
+            act_new = menu.addAction("Create Node")
+            action = menu.exec(global_pos)
+            if action == act_new:
+                self.createNodeRequested.emit()
 
     def keyPressEvent(self, event):
         if event.key() in (Qt.Key.Key_Delete, Qt.Key.Key_Backspace):
@@ -154,11 +165,9 @@ class NodeEditorWindow(QMainWindow):
 
         self.initBuildOutputDock()
         self.initBuildControlsDock()
-        self.initPropertiesDock()
         self.initTopologyDock()
 
         # Setup other UI pieces
-        self.initNodePropertiesUI()
         self.initMenu()
         self.initStatusBar()
 
@@ -209,22 +218,6 @@ class NodeEditorWindow(QMainWindow):
         layout.addStretch()
         self.dock_build_controls.setWidget(widget)
         self.addDockWidget(Qt.DockWidgetArea.RightDockWidgetArea, self.dock_build_controls)
-
-    def initPropertiesDock(self):
-        """
-        Dock for node properties.
-        """
-        self.dock_properties = QDockWidget("Node Properties", self)
-        self.properties_widget = QWidget()
-        self.properties_layout = QVBoxLayout(self.properties_widget)
-
-        self.properties_scroll = QScrollArea()
-        self.properties_scroll.setWidgetResizable(True)
-        self.properties_scroll.setWidget(self.properties_widget)
-
-        self.dock_properties.setWidget(self.properties_scroll)
-        self.addDockWidget(Qt.DockWidgetArea.RightDockWidgetArea, self.dock_properties)
-        self.dock_properties.hide()
 
 
     def initTopologyDock(self):
@@ -290,15 +283,14 @@ class NodeEditorWindow(QMainWindow):
         edit_menu = menubar.addMenu("Edit")
         self.act_add_node = edit_menu.addAction("Add Node")
         self.act_add_node.triggered.connect(self.onAddNodeDialog)
+        self.act_edit_node = edit_menu.addAction("Edit Node")
+        self.act_edit_node.triggered.connect(lambda: self.openNodePropertyDialog(self.current_node))
+        self.act_edit_node.setEnabled(False)
         self.act_remove_node = edit_menu.addAction("Remove Node")
         self.act_remove_node.triggered.connect(self.onDeleteNode)
         self.act_remove_node.setEnabled(False)
 
         windows_menu = menubar.addMenu("Windows")
-        self.act_win_properties = windows_menu.addAction("Node Properties")
-        self.act_win_properties.setCheckable(True)
-        self.act_win_properties.setChecked(True)
-        self.act_win_properties.toggled.connect(self.dock_properties.setVisible)
 
         self.act_win_build_ctrl = windows_menu.addAction("Build Controls")
         self.act_win_build_ctrl.setCheckable(True)
@@ -374,137 +366,6 @@ class NodeEditorWindow(QMainWindow):
             self.onBuildAll(start_node_name=name)
 
     # ----------------------------------------------------------------
-    # Node Properties UI
-    # ----------------------------------------------------------------
-    def initNodePropertiesUI(self):
-        # Buttons for creating/deleting nodes
-        self.btn_new_node = QPushButton("New Node")
-        self.btn_new_node.clicked.connect(lambda: self.onAddNodeDialog())
-        self.properties_layout.addWidget(self.btn_new_node)
-
-        self.btn_delete_node = QPushButton("Delete Node")
-        self.btn_delete_node.clicked.connect(lambda: self.onDeleteNode())
-        self.properties_layout.addWidget(self.btn_delete_node)
-
-        self.properties_layout.addWidget(QLabel("----- Node Properties -----"))
-
-        form_for_name = QFormLayout()
-        self.edit_node_name = QLineEdit()
-        form_for_name.addRow("Name:", self.edit_node_name)
-        self.properties_layout.addLayout(form_for_name)
-
-        form_for_project_path = QFormLayout()
-        self.edit_node_project_path = QLineEdit()
-        form_for_project_path.addRow("Project Path:", self.edit_node_project_path)
-        self.properties_layout.addLayout(form_for_project_path)
-
-        # Layout for multiple CMake options
-        self.cmake_option_layout = QVBoxLayout()
-        self.cmake_option_rows = []
-        btn_row = QHBoxLayout()
-        self.btn_add_cmake_opt = QPushButton("Add CMake Option")
-        self.btn_add_cmake_opt.clicked.connect(lambda: self.onAddCMakeOptionField())
-        btn_row.addWidget(self.btn_add_cmake_opt)
-        self.cmake_option_layout.addLayout(btn_row)
-
-        option_container = QWidget()
-        option_container.setLayout(self.cmake_option_layout)
-        option_scroll = QScrollArea()
-        option_scroll.setWidgetResizable(True)
-        option_scroll.setWidget(option_container)
-
-        self.properties_layout.addWidget(option_scroll)
-
-        # Build settings
-        form_build = QFormLayout()
-        self.edit_build_dir = QLineEdit(os.path.join(os.getcwd(), "build"))
-        form_build.addRow("Build Directory:", self.edit_build_dir)
-
-        self.combo_build_type = QComboBox()
-        self.combo_build_type.addItems(["Debug", "Release", "RelWithDebInfo", "MinSizeRel"])
-        form_build.addRow("Build Type:", self.combo_build_type)
-
-        self.edit_install_dir = QLineEdit(os.path.join(os.getcwd(), "install"))
-        form_build.addRow("Install Directory:", self.edit_install_dir)
-
-        self.edit_prefix_path = QLineEdit(os.path.join(os.getcwd(), "install"))
-        form_build.addRow("PREFIX_PATH:", self.edit_prefix_path)
-
-        self.edit_toolchain = QLineEdit()
-        form_build.addRow("Toolchain File:", self.edit_toolchain)
-
-        self.combo_generator = QComboBox()
-        self.combo_generator.addItem("Default (not specified)")
-        self.combo_generator.addItems([
-            "Visual Studio 17 2022", "Visual Studio 16 2019",
-            "Ninja", "Unix Makefiles",
-        ])
-        form_build.addRow("CMake Generator:", self.combo_generator)
-
-        self.edit_c_compiler = QLineEdit()
-        form_build.addRow("C Compiler:", self.edit_c_compiler)
-
-        self.edit_cxx_compiler = QLineEdit()
-        form_build.addRow("C++ Compiler:", self.edit_cxx_compiler)
-
-        self.properties_layout.addLayout(form_build)
-
-        self.properties_layout.addWidget(QLabel("Pre-Build Script (py_code_before_build):"))
-        self.edit_py_before = QPlainTextEdit()
-        self.properties_layout.addWidget(self.edit_py_before)
-
-        self.properties_layout.addWidget(QLabel("Post-Install Script (py_code_after_install):"))
-        self.edit_py_after = QPlainTextEdit()
-        self.properties_layout.addWidget(self.edit_py_after)
-
-        form_misc = QFormLayout()
-        self.edit_start_node_id = QLineEdit()
-        form_misc.addRow("Start Node ID:", self.edit_start_node_id)
-        self.properties_layout.addLayout(form_misc)
-
-        self.btn_build_all = QPushButton("Start Build")
-        
-        self.btn_build_all.clicked.connect(self.onBuildAll)
-        self.properties_layout.addWidget(self.btn_build_all)
-
-        self.btn_apply_properties = QPushButton("Apply Node Properties")
-        self.btn_apply_properties.clicked.connect(lambda: self.onApplyNodeProperties())
-        self.properties_layout.addWidget(self.btn_apply_properties)
-
-        self.properties_layout.addStretch()
-
-    def createOptionRow(self, text_value=""):
-        row_widget = QWidget()
-        row_layout = QHBoxLayout(row_widget)
-        row_layout.setContentsMargins(0, 0, 0, 0)
-
-        line_edit = QLineEdit(text_value)
-        btn_delete = QPushButton("Delete")
-        row_layout.addWidget(line_edit)
-        row_layout.addWidget(btn_delete)
-
-        btn_delete.clicked.connect(lambda: self.removeOptionRow(row_widget))
-
-        return (row_widget, line_edit)
-
-    def removeOptionRow(self, row_widget):
-        found_index = None
-        for i, (rw, le) in enumerate(self.cmake_option_rows):
-            if rw == row_widget:
-                found_index = i
-                break
-        if found_index is not None:
-            row = self.cmake_option_rows[found_index]
-            self.cmake_option_layout.removeWidget(row[0])
-            row[0].deleteLater()
-            self.cmake_option_rows.pop(found_index)
-
-    def onAddCMakeOptionField(self):
-        row_widget, line_edit = self.createOptionRow("")
-        self.cmake_option_rows.append((row_widget, line_edit))
-        self.cmake_option_layout.insertWidget(self.cmake_option_layout.count() - 1, row_widget)
-
-    # ----------------------------------------------------------------
     # Node operations
     # ----------------------------------------------------------------
     def onAddNodeDialog(self):
@@ -540,117 +401,28 @@ class NodeEditorWindow(QMainWindow):
         if self.current_node:
             self.scene.removeNode(self.current_node)
             self.current_node = None
-            self.clearPropertiesPanel()
 
     def onSceneSelectionChanged(self):
         sel_items = self.scene.selectedItems()
         if sel_items and isinstance(sel_items[0], NodeItem):
             self.current_node = sel_items[0]
-            self.updatePropertiesPanelFromNode()
-            self.dock_properties.show()
             if hasattr(self, 'act_remove_node'):
                 self.act_remove_node.setEnabled(True)
+            if hasattr(self, 'act_edit_node'):
+                self.act_edit_node.setEnabled(True)
         else:
             self.current_node = None
-            self.clearPropertiesPanel()
-            self.dock_properties.hide()
             if hasattr(self, 'act_remove_node'):
                 self.act_remove_node.setEnabled(False)
+            if hasattr(self, 'act_edit_node'):
+                self.act_edit_node.setEnabled(False)
 
-    def clearPropertiesPanel(self):
-        self.edit_node_name.clear()
-        self.edit_node_project_path.clear()
-        for (row_w, line_edit) in self.cmake_option_rows:
-            self.cmake_option_layout.removeWidget(row_w)
-            row_w.deleteLater()
-        self.cmake_option_rows = []
-        self.edit_build_dir.clear()
-        self.edit_install_dir.clear()
-        self.edit_prefix_path.clear()
-        self.edit_toolchain.clear()
-        self.edit_c_compiler.clear()
-        self.edit_cxx_compiler.clear()
-        self.edit_py_before.clear()
-        self.edit_py_after.clear()
-
-    def updatePropertiesPanelFromNode(self):
-        if not self.current_node:
-            self.clearPropertiesPanel()
+    def openNodePropertyDialog(self, node: NodeItem):
+        if not node:
             return
-        self.clearPropertiesPanel()
-
-        self.edit_node_name.setText(self.current_node.title())
-        self.edit_node_project_path.setText(self.current_node.projectPath())
-
-        for opt in self.current_node.cmakeOptions():
-            row_widget, line_edit = self.createOptionRow(opt)
-            self.cmake_option_rows.append((row_widget, line_edit))
-            self.cmake_option_layout.insertWidget(len(self.cmake_option_rows)-1, row_widget)
-
-        bs = self.current_node.buildSettings()
-        self.edit_build_dir.setText(bs.build_dir)
-        idx_bt = self.combo_build_type.findText(bs.build_type)
-        if idx_bt >= 0:
-            self.combo_build_type.setCurrentIndex(idx_bt)
-        else:
-            self.combo_build_type.setCurrentText(bs.build_type)
-        self.edit_install_dir.setText(bs.install_dir)
-        self.edit_prefix_path.setText(bs.prefix_path)
-        self.edit_toolchain.setText(bs.toolchain_file)
-        if bs.generator:
-            gen_idx = self.combo_generator.findText(bs.generator)
-            if gen_idx >= 0:
-                self.combo_generator.setCurrentIndex(gen_idx)
-            else:
-                self.combo_generator.setCurrentText(bs.generator)
-        else:
-            self.combo_generator.setCurrentIndex(0)
-        self.edit_c_compiler.setText(bs.c_compiler)
-        self.edit_cxx_compiler.setText(bs.cxx_compiler)
-
-        self.edit_py_before.setPlainText(self.current_node.codeBeforeBuild())
-        self.edit_py_after.setPlainText(self.current_node.codeAfterInstall())
-
-    def onApplyNodeProperties(self):
-        if not self.current_node:
-            return
-
-        new_title = self.edit_node_name.text().strip()
-        if not new_title:
-            new_title = f"Node_{self.current_node.id()}"
-        elif any(n.title() == new_title and n != self.current_node for n in self.scene.nodes):
-            QMessageBox.warning(self, "Warning", f"Node name '{new_title}' already exists.")
-            return
-        self.current_node.updateTitle(new_title)
-
-        # Collect new CMake options
-        new_opts = []
-        for (row_w, line_edit) in self.cmake_option_rows:
-            val = line_edit.text().strip()
-            if val:
-                new_opts.append(val)
-        self.current_node.setCMakeOptions(new_opts)
-
-        new_proj_path = self.edit_node_project_path.text().strip()
-        self.current_node.setProjectPath(new_proj_path)
-
-        generator = (
-            "" if self.combo_generator.currentIndex() == 0 else self.combo_generator.currentText()
-        )
-        bs = BuildSettings(
-            build_dir=self.edit_build_dir.text().strip(),
-            install_dir=self.edit_install_dir.text().strip(),
-            build_type=self.combo_build_type.currentText(),
-            prefix_path=self.edit_prefix_path.text().strip(),
-            toolchain_file=self.edit_toolchain.text().strip(),
-            generator=generator,
-            c_compiler=self.edit_c_compiler.text().strip(),
-            cxx_compiler=self.edit_cxx_compiler.text().strip(),
-        )
-        self.current_node.setBuildSettings(bs)
-
-        self.current_node.setCodeBeforeBuild(self.edit_py_before.toPlainText())
-        self.current_node.setCodeAfterInstall(self.edit_py_after.toPlainText())
+        dlg = NodePropertiesDialog(node, self)
+        if dlg.exec() == dlg.DialogCode.Accepted:
+            dlg.applyToNode()
 
     # ----------------------------------------------------------------
     # Topology view
