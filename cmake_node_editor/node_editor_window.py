@@ -78,6 +78,7 @@ class NodeView(QGraphicsView):
         if event.button() == Qt.MouseButton.RightButton:
             self._panning = True
             self._last_mouse_pos = event.pos()
+            self._press_pos = event.pos()
             self.setCursor(Qt.CursorShape.ClosedHandCursor)
         else:
             super(NodeView, self).mousePressEvent(event)
@@ -93,8 +94,18 @@ class NodeView(QGraphicsView):
 
     def mouseReleaseEvent(self, event: QMouseEvent):
         if event.button() == Qt.MouseButton.RightButton:
+            moved = (event.pos() - self._press_pos).manhattanLength() if self._press_pos else 0
             self._panning = False
             self.setCursor(Qt.CursorShape.ArrowCursor)
+            self._press_pos = None
+            if moved < 4:
+                menu = QMenu(self)
+                act_create = menu.addAction("Create Node")
+                chosen = menu.exec(event.globalPosition().toPoint())
+                if chosen == act_create:
+                    win = self.window()
+                    if hasattr(win, "onAddNodeDialog"):
+                        win.onAddNodeDialog()
         else:
             super(NodeView, self).mouseReleaseEvent(event)
 
@@ -133,6 +144,7 @@ class NodeEditorWindow(QMainWindow):
         self.initBuildControlsDock()
         self.initPropertiesDock()
         self.initTopologyDock()
+        self.initBuildControlDock()
 
         # Setup other UI pieces
         self.initNodePropertiesUI()
@@ -210,6 +222,27 @@ class NodeEditorWindow(QMainWindow):
         self.topology_view.setReadOnly(True)
         self.dock_topology.setWidget(self.topology_view)
         self.addDockWidget(Qt.DockWidgetArea.LeftDockWidgetArea, self.dock_topology)
+
+    def initBuildControlDock(self):
+        """
+        Dock that holds global build controls like the start node ID and build button.
+        """
+        self.dock_build_ctrl = QDockWidget("Build Controls", self)
+        widget = QWidget()
+        layout = QVBoxLayout(widget)
+
+        form = QFormLayout()
+        self.edit_start_node_id = QLineEdit()
+        form.addRow("Start Node ID:", self.edit_start_node_id)
+        layout.addLayout(form)
+
+        self.btn_build_all = QPushButton("Start Build")
+        self.btn_build_all.clicked.connect(lambda: self.onBuildAll())
+        layout.addWidget(self.btn_build_all)
+
+        layout.addStretch()
+        self.dock_build_ctrl.setWidget(widget)
+        self.addDockWidget(Qt.DockWidgetArea.RightDockWidgetArea, self.dock_build_ctrl)
 
     # ----------------------------------------------------------------
     # Window events
@@ -327,18 +360,17 @@ class NodeEditorWindow(QMainWindow):
         if ok and name:
             self.onBuildAll(start_node_name=name)
 
-
     # ----------------------------------------------------------------
     # Node Properties UI
     # ----------------------------------------------------------------
     def initNodePropertiesUI(self):
         # Buttons for creating/deleting nodes
         self.btn_new_node = QPushButton("New Node")
-        self.btn_new_node.clicked.connect(self.onAddNodeDialog)
+        self.btn_new_node.clicked.connect(lambda: self.onAddNodeDialog())
         self.properties_layout.addWidget(self.btn_new_node)
 
         self.btn_delete_node = QPushButton("Delete Node")
-        self.btn_delete_node.clicked.connect(self.onDeleteNode)
+        self.btn_delete_node.clicked.connect(lambda: self.onDeleteNode())
         self.properties_layout.addWidget(self.btn_delete_node)
 
         self.properties_layout.addWidget(QLabel("----- Node Properties -----"))
@@ -358,7 +390,7 @@ class NodeEditorWindow(QMainWindow):
         self.cmake_option_rows = []
         btn_row = QHBoxLayout()
         self.btn_add_cmake_opt = QPushButton("Add CMake Option")
-        self.btn_add_cmake_opt.clicked.connect(self.onAddCMakeOptionField)
+        self.btn_add_cmake_opt.clicked.connect(lambda: self.onAddCMakeOptionField())
         btn_row.addWidget(self.btn_add_cmake_opt)
         self.cmake_option_layout.addLayout(btn_row)
 
@@ -412,8 +444,18 @@ class NodeEditorWindow(QMainWindow):
         self.edit_py_after = QPlainTextEdit()
         self.properties_layout.addWidget(self.edit_py_after)
 
+        form_misc = QFormLayout()
+        self.edit_start_node_id = QLineEdit()
+        form_misc.addRow("Start Node ID:", self.edit_start_node_id)
+        self.properties_layout.addLayout(form_misc)
+
+        self.btn_build_all = QPushButton("Start Build")
+        
+        self.btn_build_all.clicked.connect(self.onBuildAll)
+        self.properties_layout.addWidget(self.btn_build_all)
+
         self.btn_apply_properties = QPushButton("Apply Node Properties")
-        self.btn_apply_properties.clicked.connect(self.onApplyNodeProperties)
+        self.btn_apply_properties.clicked.connect(lambda: self.onApplyNodeProperties())
         self.properties_layout.addWidget(self.btn_apply_properties)
 
         self.properties_layout.addStretch()
