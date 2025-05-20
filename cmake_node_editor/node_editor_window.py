@@ -3,7 +3,7 @@ import multiprocessing
 from multiprocessing import Queue
 
 from PyQt6.QtCore import Qt, QThread, pyqtSignal
-from PyQt6.QtGui import QPainter, QWheelEvent, QPainter, QMouseEvent
+from PyQt6.QtGui import QPainter, QWheelEvent, QMouseEvent
 from PyQt6.QtWidgets import (
     QApplication, QMainWindow, QDockWidget, QWidget, QFormLayout, QVBoxLayout, QHBoxLayout,
     QPlainTextEdit, QLineEdit, QPushButton, QLabel, QComboBox, QMessageBox,
