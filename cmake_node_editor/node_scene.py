@@ -3,7 +3,7 @@ import json
 from collections import deque
 
 from PyQt6.QtCore import Qt, QRectF, QPointF
-from PyQt6.QtGui import QBrush, QPen, QPainterPath
+from PyQt6.QtGui import QBrush, QPen, QPainterPath, QLineF
 from PyQt6.QtWidgets import (
     QGraphicsScene, QGraphicsRectItem, QGraphicsPathItem,
     QGraphicsItem, QGraphicsTextItem
@@ -336,6 +336,29 @@ class NodeScene(QGraphicsScene):
         self.nodes = []
         self.edges = []
         self.topology_changed_callback = None
+
+    def drawBackground(self, painter, rect):
+        """Draw a simple grid as the scene background."""
+        super().drawBackground(painter, rect)
+        grid_size = 20
+
+        left = int(rect.left()) - (int(rect.left()) % grid_size)
+        top = int(rect.top()) - (int(rect.top()) % grid_size)
+
+        painter.save()
+        painter.setPen(QPen(Qt.GlobalColor.lightGray, 1))
+
+        x = left
+        while x < rect.right():
+            painter.drawLine(QLineF(x, rect.top(), x, rect.bottom()))
+            x += grid_size
+
+        y = top
+        while y < rect.bottom():
+            painter.drawLine(QLineF(rect.left(), y, rect.right(), y))
+            y += grid_size
+
+        painter.restore()
 
     def setTopologyCallback(self, func):
         """
