@@ -10,6 +10,7 @@ from PyQt6.QtWidgets import (
 )
 
 from dataclasses import asdict
+import os
 from .datas import NodeData, EdgeData, BuildSettings
 
 
