@@ -7,7 +7,7 @@ from PyQt6.QtGui import QPainter, QWheelEvent, QPainter, QMouseEvent
 from PyQt6.QtWidgets import (
     QMainWindow, QDockWidget, QWidget, QFormLayout, QVBoxLayout, QHBoxLayout,
     QPlainTextEdit, QLineEdit, QPushButton, QLabel, QComboBox, QMessageBox,
-    QFileDialog, QGraphicsView, QScrollArea
+    QFileDialog, QGraphicsView, QScrollArea, QMenu
 )
 
 from .node_scene import NodeScene, NodeItem
@@ -64,6 +64,7 @@ class NodeView(QGraphicsView):
         self.setDragMode(QGraphicsView.DragMode.RubberBandDrag)
         self._panning = False
         self._last_mouse_pos = None
+        self._press_pos = None
         
     def wheelEvent(self, event: QWheelEvent):
         scaleFactor = 1.15
@@ -76,6 +77,7 @@ class NodeView(QGraphicsView):
         if event.button() == Qt.MouseButton.RightButton:
             self._panning = True
             self._last_mouse_pos = event.pos()
+            self._press_pos = event.pos()
             self.setCursor(Qt.CursorShape.ClosedHandCursor)
         else:
             super(NodeView, self).mousePressEvent(event)
@@ -91,8 +93,18 @@ class NodeView(QGraphicsView):
 
     def mouseReleaseEvent(self, event: QMouseEvent):
         if event.button() == Qt.MouseButton.RightButton:
+            moved = (event.pos() - self._press_pos).manhattanLength() if self._press_pos else 0
             self._panning = False
             self.setCursor(Qt.CursorShape.ArrowCursor)
+            self._press_pos = None
+            if moved < 4:
+                menu = QMenu(self)
+                act_create = menu.addAction("Create Node")
+                chosen = menu.exec(event.globalPosition().toPoint())
+                if chosen == act_create:
+                    win = self.window()
+                    if hasattr(win, "onAddNodeDialog"):
+                        win.onAddNodeDialog()
         else:
             super(NodeView, self).mouseReleaseEvent(event)
 
@@ -222,6 +234,10 @@ class NodeEditorWindow(QMainWindow):
         act_load = file_menu.addAction("Load Project...")
         act_load.triggered.connect(self.onLoadProject)
 
+        edit_menu = menubar.addMenu("Edit")
+        act_new_node = edit_menu.addAction("Create Node")
+        act_new_node.triggered.connect(lambda: self.onAddNodeDialog())
+
     def onSaveProject(self):
         """
         Gather global config, then call scene.saveProjectToJson(...)
@@ -263,11 +279,11 @@ class NodeEditorWindow(QMainWindow):
     def initNodePropertiesUI(self):
         # Buttons for creating/deleting nodes
         self.btn_new_node = QPushButton("New Node")
-        self.btn_new_node.clicked.connect(self.onAddNodeDialog)
+        self.btn_new_node.clicked.connect(lambda: self.onAddNodeDialog())
         self.properties_layout.addWidget(self.btn_new_node)
 
         self.btn_delete_node = QPushButton("Delete Node")
-        self.btn_delete_node.clicked.connect(self.onDeleteNode)
+        self.btn_delete_node.clicked.connect(lambda: self.onDeleteNode())
         self.properties_layout.addWidget(self.btn_delete_node)
 
         self.properties_layout.addWidget(QLabel("----- Node Properties -----"))
@@ -287,7 +303,7 @@ class NodeEditorWindow(QMainWindow):
         self.cmake_option_rows = []
         btn_row = QHBoxLayout()
         self.btn_add_cmake_opt = QPushButton("Add CMake Option")
-        self.btn_add_cmake_opt.clicked.connect(self.onAddCMakeOptionField)
+        self.btn_add_cmake_opt.clicked.connect(lambda: self.onAddCMakeOptionField())
         btn_row.addWidget(self.btn_add_cmake_opt)
         self.cmake_option_layout.addLayout(btn_row)
 
@@ -347,11 +363,12 @@ class NodeEditorWindow(QMainWindow):
         self.properties_layout.addLayout(form_misc)
 
         self.btn_build_all = QPushButton("Start Build")
+        
         self.btn_build_all.clicked.connect(self.onBuildAll)
         self.properties_layout.addWidget(self.btn_build_all)
 
         self.btn_apply_properties = QPushButton("Apply Node Properties")
-        self.btn_apply_properties.clicked.connect(self.onApplyNodeProperties)
+        self.btn_apply_properties.clicked.connect(lambda: self.onApplyNodeProperties())
         self.properties_layout.addWidget(self.btn_apply_properties)
 
         self.properties_layout.addStretch()
