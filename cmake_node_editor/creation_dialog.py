@@ -37,7 +37,7 @@ class NodeCreationDialog(QDialog):
         # Project path
         self.project_path_edit = QLineEdit()
         self.btn_browse_project = QPushButton("Browse Folder")
-        self.btn_browse_project.clicked.connect(self.onBrowseProject)
+        self.btn_browse_project.clicked.connect(lambda: self.onBrowseProject())
 
         # Initially add one empty CMake option
         self.addOptionEdit()
