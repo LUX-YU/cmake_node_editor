@@ -7,7 +7,7 @@ from PyQt6.QtGui import QPainter, QWheelEvent, QPainter, QMouseEvent
 from PyQt6.QtWidgets import (
     QMainWindow, QDockWidget, QWidget, QFormLayout, QVBoxLayout, QHBoxLayout,
     QPlainTextEdit, QLineEdit, QPushButton, QLabel, QComboBox, QMessageBox,
-    QFileDialog, QGraphicsView
+    QFileDialog, QGraphicsView, QScrollArea
 )
 
 from .node_scene import NodeScene, NodeItem
@@ -163,7 +163,12 @@ class NodeEditorWindow(QMainWindow):
         self.dock_properties = QDockWidget("Node Properties", self)
         self.properties_widget = QWidget()
         self.properties_layout = QVBoxLayout(self.properties_widget)
-        self.dock_properties.setWidget(self.properties_widget)
+
+        self.properties_scroll = QScrollArea()
+        self.properties_scroll.setWidgetResizable(True)
+        self.properties_scroll.setWidget(self.properties_widget)
+
+        self.dock_properties.setWidget(self.properties_scroll)
         self.addDockWidget(Qt.DockWidgetArea.RightDockWidgetArea, self.dock_properties)
 
     def initGlobalBuildDock(self):
@@ -369,7 +374,13 @@ class NodeEditorWindow(QMainWindow):
         btn_row.addWidget(self.btn_add_cmake_opt)
         self.cmake_option_layout.addLayout(btn_row)
 
-        self.properties_layout.addLayout(self.cmake_option_layout)
+        option_container = QWidget()
+        option_container.setLayout(self.cmake_option_layout)
+        option_scroll = QScrollArea()
+        option_scroll.setWidgetResizable(True)
+        option_scroll.setWidget(option_container)
+
+        self.properties_layout.addWidget(option_scroll)
 
         self.properties_layout.addWidget(QLabel("Pre-Build Script (py_code_before_build):"))
         self.edit_py_before = QPlainTextEdit()
@@ -414,7 +425,7 @@ class NodeEditorWindow(QMainWindow):
     def onAddCMakeOptionField(self):
         row_widget, line_edit = self.createOptionRow("")
         self.cmake_option_rows.append((row_widget, line_edit))
-        self.cmake_option_layout.insertWidget(len(self.cmake_option_rows) - 1, row_widget)
+        self.cmake_option_layout.insertWidget(self.cmake_option_layout.count() - 1, row_widget)
 
     # ----------------------------------------------------------------
     # Node operations
@@ -425,6 +436,9 @@ class NodeEditorWindow(QMainWindow):
             node_name, opts, proj_path = dlg.getNodeData()
             if not node_name:
                 node_name = f"Node_{self.scene.nodeCounter}"
+            if any(n.title() == node_name for n in self.scene.nodes):
+                QMessageBox.warning(self, "Warning", f"Node name '{node_name}' already exists.")
+                return
             new_node = self.scene.addNewNode(node_name, opts, proj_path)
             self.scene.clearSelection()
             new_node.setSelected(True)
@@ -476,6 +490,9 @@ class NodeEditorWindow(QMainWindow):
         new_title = self.edit_node_name.text().strip()
         if not new_title:
             new_title = f"Node_{self.current_node.id()}"
+        elif any(n.title() == new_title and n != self.current_node for n in self.scene.nodes):
+            QMessageBox.warning(self, "Warning", f"Node name '{new_title}' already exists.")
+            return
         self.current_node.updateTitle(new_title)
 
         # Collect new CMake options
@@ -535,19 +552,18 @@ class NodeEditorWindow(QMainWindow):
             return
 
         start_node_id_str = self.edit_start_node_id.text().strip()
+        start_id = None
         start_index = 0
         if start_node_id_str:
             try:
-                start_id = int(start_node_id_str)
-                found = None
+                sid = int(start_node_id_str)
                 for idx, node_item in enumerate(sorted_nodes):
-                    if node_item.id() == start_id:
-                        found = idx
+                    if node_item.id() == sid:
+                        start_id = sid
+                        start_index = idx
                         break
-                if found is not None:
-                    start_index = found
-                else:
-                    QMessageBox.warning(self, "Warning", f"Node ID={start_id} not found, building from beginning.")
+                if start_id is None:
+                    QMessageBox.warning(self, "Warning", f"Node ID={sid} not found, building from beginning.")
             except ValueError:
                 QMessageBox.warning(self, "Warning", f"Start Node ID '{start_node_id_str}' invalid, building from beginning.")
 
@@ -559,7 +575,7 @@ class NodeEditorWindow(QMainWindow):
             prefix_path=prefix_path,
             toolchain_file=toolchain_path,
             generator=generator,
-            start_node_id=start_index,
+            start_node_id=start_id if start_id is not None else -1,
             c_compiler=c_compiler,
             cxx_compiler=cxx_compiler
         )
@@ -570,8 +586,8 @@ class NodeEditorWindow(QMainWindow):
         )
 
         # For each node in sorted order, build NodeCommands & CommandData
-        for index, node_obj in enumerate(sorted_nodes[start_index:]):
-            node_cmd = NodeCommands(index=index, node_data=node_obj.nodeData(), cmd_list=[])
+        for node_obj in sorted_nodes[start_index:]:
+            node_cmd = NodeCommands(index=node_obj.id(), node_data=node_obj.nodeData(), cmd_list=[])
 
             # Pre-build script
             if node_obj.codeBeforeBuild().strip():
@@ -607,7 +623,7 @@ class NodeEditorWindow(QMainWindow):
                 f"-DCMAKE_INSTALL_PREFIX={node_install_dir}"
             ]
             if generator:
-                cmd_configure.insert(1, f"-G {generator}")
+                cmd_configure[1:1] = ["-G", generator]
             if global_cfg_data.c_compiler:
                 cmd_configure.append(f"-DCMAKE_C_COMPILER:FILEPATH={global_cfg_data.c_compiler}")
             if global_cfg_data.cxx_compiler:

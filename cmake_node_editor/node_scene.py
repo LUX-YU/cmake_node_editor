@@ -104,7 +104,7 @@ class Edge(QGraphicsPathItem):
     """
     def __init__(self, source_pin=None, target_pin=None, is_temp=False):
         super().__init__()
-        self.souce_pin  = source_pin
+        self.source_pin  = source_pin
         self.target_pin = target_pin
         self.is_temp = is_temp
         self.dragging_end = None
@@ -120,7 +120,7 @@ class Edge(QGraphicsPathItem):
         self.dragging_end = scene_pos
 
     def sourcePin(self):
-        return self.souce_pin
+        return self.source_pin
 
     def targetPin(self):
         return self.target_pin
@@ -130,8 +130,8 @@ class Edge(QGraphicsPathItem):
         Update the bezier path from the source pin to target pin 
         or (in the case of a temporary edge) to the dragging_end.
         """
-        if self.souce_pin:
-            p1 = self.souce_pin.centerPos()
+        if self.source_pin:
+            p1 = self.source_pin.centerPos()
         elif self.target_pin:
             p1 = self.target_pin.centerPos()
         else:
@@ -159,7 +159,7 @@ class Edge(QGraphicsPathItem):
         Return an EdgeData object for this edge. 
         Contains the source/target node IDs.
         """
-        s_id = self.souce_pin.parent_node.id() if self.souce_pin else -1
+        s_id = self.source_pin.parent_node.id() if self.source_pin else -1
         t_id = self.target_pin.parent_node.id() if self.target_pin else -1
         return EdgeData(source_node_id=s_id, target_node_id=t_id)
 
@@ -342,6 +342,8 @@ class NodeScene(QGraphicsScene):
                             cmake_options=cmake_options, 
                             project_path=project_path)
         new_node.setPos(100, 100)
+        new_node.nodeData().pos_x = 100
+        new_node.nodeData().pos_y = 100
         self.addItem(new_node)
         self.nodes.append(new_node)
         self.notifyTopologyChanged()
@@ -354,9 +356,8 @@ class NodeScene(QGraphicsScene):
         if node_item in self.nodes:
             edges_to_remove = []
             for e in self.edges:
-                # If the edge's sourcePin or targetPin is the node_item itself
-                if (e.sourcePin() and e.sourcePin() == node_item) or \
-                   (e.targetPin() and e.targetPin() == node_item):
+                if (e.sourcePin() and e.sourcePin().parent_node == node_item) or \
+                   (e.targetPin() and e.targetPin().parent_node == node_item):
                     edges_to_remove.append(e)
 
             for e in edges_to_remove:
@@ -370,6 +371,13 @@ class NodeScene(QGraphicsScene):
         """
         Create an Edge from source_pin to target_pin, add to scene, update path, notify topology.
         """
+        # Prevent self-loop and duplicate edges
+        if source_pin.parent_node == target_pin.parent_node:
+            return
+        for e in self.edges:
+            if e.sourcePin() == source_pin and e.targetPin() == target_pin:
+                return
+
         edge = Edge(source_pin, target_pin, is_temp=False)
         self.addItem(edge)
         self.edges.append(edge)

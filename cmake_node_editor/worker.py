@@ -48,7 +48,7 @@ def find_vcvarsall():
     """
     vswhere_path = r"C:/Program Files (x86)/Microsoft Visual Studio/Installer/vswhere.exe"
     if not os.path.exists(vswhere_path):
-        raise FileNotFoundError("vswhere.exe not found. Please ensure the Visual Studio Installer is installed.")
+        return None
     
     # Run vswhere to get the latest Visual Studio installation path that includes the VC tools.
     result = subprocess.run([
@@ -61,12 +61,12 @@ def find_vcvarsall():
     
     installation_path = result.stdout.strip()
     if not installation_path:
-        raise RuntimeError("Failed to locate Visual Studio installation path using vswhere.")
+        return None
     
     # Construct the full path to vcvarsall.bat.
     vcvarsall_path = os.path.join(installation_path, "VC", "Auxiliary", "Build", "vcvarsall.bat")
     if not os.path.exists(vcvarsall_path):
-        raise FileNotFoundError(f"vcvarsall.bat not found at {vcvarsall_path}.")
+        return None
     
     return vcvarsall_path
 
@@ -113,12 +113,15 @@ def worker_main(task_queue: Queue, result_queue: Queue):
     """
     # On Windows, load the Visual Studio developer environment.
     if os.name == "nt":
-        try:
-            vcvarsall_bat = find_vcvarsall()
-            load_vcvars_env(vcvarsall_bat, arch="x64")
-            result_queue.put(SubprocessLogData(index=-1, log="[Worker] Loaded vcvarsall.bat environment."))
-        except Exception as e:
-            result_queue.put(SubprocessLogData(index=-1, log=f"[Worker] Failed to load vcvarsall.bat: {e}"))
+        vcvarsall_bat = find_vcvarsall()
+        if vcvarsall_bat:
+            try:
+                load_vcvars_env(vcvarsall_bat, arch="x64")
+                result_queue.put(SubprocessLogData(index=-1, log="[Worker] Loaded vcvarsall.bat environment."))
+            except Exception as e:
+                result_queue.put(SubprocessLogData(index=-1, log=f"[Worker] Failed to load vcvarsall.bat: {e}"))
+        else:
+            result_queue.put(SubprocessLogData(index=-1, log="[Worker] vswhere not found, skipping vcvarsall."))
     
     result_queue.put(SubprocessLogData(index=-1, log="[Worker] Worker process started."))
 
@@ -179,11 +182,16 @@ def do_execute_command(cmdData: CommandData, result_queue: Queue) -> bool:
     """
     try:
         if cmdData.type == "script":
-            result_queue.put(SubprocessLogData(index=-1, 
+            result_queue.put(SubprocessLogData(index=-1,
                 log=f"[Worker] Executing script: {cmdData.display_name}"))
-            # Execute the Python script code within a clean namespace.
-            exec(cmdData.cmd, {}, {})
-            result_queue.put(SubprocessLogData(index=-1, 
+            import io, contextlib
+            buf = io.StringIO()
+            with contextlib.redirect_stdout(buf):
+                exec(cmdData.cmd, {}, {})
+            out = buf.getvalue()
+            if out:
+                result_queue.put(SubprocessLogData(index=-1, log=out))
+            result_queue.put(SubprocessLogData(index=-1,
                 log=f"[Worker] Script executed successfully: {cmdData.display_name}"))
             return True
 

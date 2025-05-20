@@ -3,7 +3,8 @@ import os
 from PyQt6.QtCore import Qt
 from PyQt6.QtWidgets import (
     QDialog, QLabel, QLineEdit, QPushButton, QVBoxLayout, QHBoxLayout,
-    QFormLayout, QWidget, QFileDialog, QMessageBox, QDialogButtonBox
+    QFormLayout, QWidget, QFileDialog, QMessageBox, QDialogButtonBox,
+    QScrollArea
 )
 
 class NodeCreationDialog(QDialog):
@@ -21,7 +22,7 @@ class NodeCreationDialog(QDialog):
         # UI elements for collecting input
         self.node_name_edit = QLineEdit()
         self.node_options_layout = QVBoxLayout()
-        self.option_edits = []
+        self.option_rows = []
 
         # Project path
         self.project_path_edit = QLineEdit()
@@ -45,12 +46,16 @@ class NodeCreationDialog(QDialog):
         proj_path_layout.addWidget(self.btn_browse_project)
         form.addRow("Project Path:", proj_path_layout)
 
-        # CMake options widget
+        # CMake options widget with scrolling
         opts_widget = QWidget()
         opts_layout = QVBoxLayout(opts_widget)
         opts_layout.addLayout(self.node_options_layout)
         opts_layout.addWidget(self.btn_add_option)
-        form.addRow("CMake Options:", opts_widget)
+
+        scroll = QScrollArea()
+        scroll.setWidgetResizable(True)
+        scroll.setWidget(opts_widget)
+        form.addRow("CMake Options:", scroll)
 
         # Dialog buttons (OK/Cancel)
         self.buttons = QDialogButtonBox(
@@ -67,12 +72,29 @@ class NodeCreationDialog(QDialog):
         self.setLayout(main_layout)
 
     def addOptionEdit(self, text_value=""):
-        """
-        Add a new QLineEdit to the CMake options layout, optionally pre-filled with 'text_value'.
-        """
+        """Add a new option row with a remove button."""
+        row_widget = QWidget()
+        row_layout = QHBoxLayout(row_widget)
+        row_layout.setContentsMargins(0, 0, 0, 0)
+
         edit = QLineEdit(text_value)
-        self.node_options_layout.addWidget(edit)
-        self.option_edits.append(edit)
+        btn_remove = QPushButton("Delete")
+
+        row_layout.addWidget(edit)
+        row_layout.addWidget(btn_remove)
+
+        btn_remove.clicked.connect(lambda: self.removeOptionRow(row_widget))
+
+        self.node_options_layout.addWidget(row_widget)
+        self.option_rows.append((row_widget, edit))
+
+    def removeOptionRow(self, row_widget):
+        for i, (rw, le) in enumerate(self.option_rows):
+            if rw == row_widget:
+                self.node_options_layout.removeWidget(rw)
+                rw.deleteLater()
+                self.option_rows.pop(i)
+                break
 
     def onBrowseProject(self):
         """
@@ -107,7 +129,7 @@ class NodeCreationDialog(QDialog):
         """
         node_name = self.node_name_edit.text().strip()
         cmake_opts = []
-        for ed in self.option_edits:
+        for (_, ed) in self.option_rows:
             val = ed.text().strip()
             if val:
                 cmake_opts.append(val)
