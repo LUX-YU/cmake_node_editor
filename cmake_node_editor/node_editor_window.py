@@ -144,7 +144,6 @@ class NodeEditorWindow(QMainWindow):
         self.initBuildControlsDock()
         self.initPropertiesDock()
         self.initTopologyDock()
-        self.initBuildControlDock()
 
         # Setup other UI pieces
         self.initNodePropertiesUI()
