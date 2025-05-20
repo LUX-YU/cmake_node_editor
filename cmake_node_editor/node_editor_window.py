@@ -363,7 +363,8 @@ class NodeEditorWindow(QMainWindow):
         self.properties_layout.addLayout(form_misc)
 
         self.btn_build_all = QPushButton("Start Build")
-        self.btn_build_all.clicked.connect(lambda: self.onBuildAll())
+        
+        self.btn_build_all.clicked.connect(self.onBuildAll)
         self.properties_layout.addWidget(self.btn_build_all)
 
         self.btn_apply_properties = QPushButton("Apply Node Properties")
