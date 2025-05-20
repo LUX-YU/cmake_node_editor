@@ -2,8 +2,8 @@ import os
 import json
 from collections import deque
 
-from PyQt6.QtCore import Qt, QRectF, QPointF
-from PyQt6.QtGui import QBrush, QPen, QPainterPath, QLineF
+from PyQt6.QtCore import Qt, QRectF, QPointF, QLineF
+from PyQt6.QtGui import QBrush, QPen, QPainterPath
 from PyQt6.QtWidgets import (
     QGraphicsScene, QGraphicsRectItem, QGraphicsPathItem,
     QGraphicsItem, QGraphicsTextItem
