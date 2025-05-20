@@ -137,15 +137,17 @@ def worker_main(task_queue: Queue, result_queue: Queue):
             try:
                 # Iterate over each NodeCommands in the project.
                 for node_cmds in task.node_commands_list:
+                    node_failed = False
                     for cmdData in node_cmds.cmd_list:
                         ok = do_execute_command(cmdData, result_queue)
                         if not ok:
-                            # Notify main process of failure and abort further execution.
-                            result_queue.put(SubprocessResponseData(index=-1, result=False))
+                            result_queue.put(SubprocessResponseData(index=node_cmds.index, result=False))
                             build_failed = True
+                            node_failed = True
                             break
-                    if build_failed:
+                    if node_failed:
                         break
+                    result_queue.put(SubprocessResponseData(index=node_cmds.index, result=True))
 
                 if not build_failed:
                     result_queue.put(SubprocessLogData(index=-1, log="[Worker] All commands succeeded!"))
