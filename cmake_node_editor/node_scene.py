@@ -336,7 +336,7 @@ class NodeScene(QGraphicsScene):
         self.nodes = []
         self.edges = []
         self.topology_changed_callback = None
-        self.grid_opacity = 1.0
+        self.grid_opacity = 0.5
 
     def drawBackground(self, painter, rect):
         """Draw a simple grid as the scene background."""
