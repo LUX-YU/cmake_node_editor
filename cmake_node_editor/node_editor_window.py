@@ -5,7 +5,7 @@ from multiprocessing import Queue
 from PyQt6.QtCore import Qt, QThread, pyqtSignal
 from PyQt6.QtGui import QPainter, QWheelEvent, QPainter, QMouseEvent
 from PyQt6.QtWidgets import (
-    QMainWindow, QDockWidget, QWidget, QFormLayout, QVBoxLayout, QHBoxLayout,
+    QApplication, QMainWindow, QDockWidget, QWidget, QFormLayout, QVBoxLayout, QHBoxLayout,
     QPlainTextEdit, QLineEdit, QPushButton, QLabel, QComboBox, QMessageBox,
     QFileDialog, QGraphicsView, QScrollArea, QProgressBar, QInputDialog, QMenu
 )
@@ -16,6 +16,7 @@ from .datas import (
     BuildSettings, SubprocessLogData, SubprocessResponseData
 )
 from .creation_dialog import NodeCreationDialog
+from .settings_dialog import SettingsDialog
 from .worker import worker_main
 
 class ResultListenerThread(QThread):
@@ -283,6 +284,9 @@ class NodeEditorWindow(QMainWindow):
         act_load = file_menu.addAction("Load Project...")
         act_load.triggered.connect(self.onLoadProject)
 
+        act_settings = file_menu.addAction("Settings")
+        act_settings.triggered.connect(self.onSettings)
+
         project_menu = menubar.addMenu("Project")
         act_full = project_menu.addAction("Full Build")
         act_full.triggered.connect(lambda: self.onBuildAll(start_node_name=None, force_first=True))
@@ -349,6 +353,14 @@ class NodeEditorWindow(QMainWindow):
         Restore global build settings from the loaded dict.
         """
         self.edit_start_node_id.setText(global_cfg.get("start_node_id", ""))
+
+    def onSettings(self):
+        current_style = QApplication.style().objectName()
+        dlg = SettingsDialog(current_style, self.scene.gridOpacity(), self)
+        if dlg.exec():
+            style_name, opacity = dlg.getValues()
+            QApplication.setStyle(style_name)
+            self.scene.setGridOpacity(opacity)
 
     def onPartialBuild(self):
         names = [n.title() for n in self.scene.nodes]

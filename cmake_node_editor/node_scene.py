@@ -3,7 +3,7 @@ import json
 from collections import deque
 
 from PyQt6.QtCore import Qt, QRectF, QPointF, QLineF
-from PyQt6.QtGui import QBrush, QPen, QPainterPath
+from PyQt6.QtGui import QBrush, QPen, QPainterPath, QColor
 from PyQt6.QtWidgets import (
     QGraphicsScene, QGraphicsRectItem, QGraphicsPathItem,
     QGraphicsItem, QGraphicsTextItem
@@ -336,6 +336,7 @@ class NodeScene(QGraphicsScene):
         self.nodes = []
         self.edges = []
         self.topology_changed_callback = None
+        self.grid_opacity = 1.0
 
     def drawBackground(self, painter, rect):
         """Draw a simple grid as the scene background."""
@@ -346,7 +347,9 @@ class NodeScene(QGraphicsScene):
         top = int(rect.top()) - (int(rect.top()) % grid_size)
 
         painter.save()
-        painter.setPen(QPen(Qt.GlobalColor.lightGray, 1))
+        color = QColor(Qt.GlobalColor.lightGray)
+        color.setAlphaF(self.grid_opacity)
+        painter.setPen(QPen(color, 1))
 
         x = left
         while x < rect.right():
@@ -359,6 +362,14 @@ class NodeScene(QGraphicsScene):
             y += grid_size
 
         painter.restore()
+
+    def setGridOpacity(self, value: float):
+        """Set the transparency of the background grid (0.0 - 1.0)."""
+        self.grid_opacity = max(0.0, min(1.0, value))
+        self.update()
+
+    def gridOpacity(self) -> float:
+        return self.grid_opacity
 
     def setTopologyCallback(self, func):
         """

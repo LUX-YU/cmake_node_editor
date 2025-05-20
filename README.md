@@ -10,6 +10,8 @@ CMake Conductor is a user-friendly application designed to simplify the manageme
 - **Streamlined Workflow**: Easily set up and manage custom build steps without dealing with complex command line instructions.
 - **Real-Time Monitoring**: View build progress and logs as your project is built, making it simple to spot and address issues.
 
+The "Settings" option in the **File** menu lets you change the application style and adjust the background grid transparency.
+
 ## How to Use
 1. **Launch the Application**  
    Open your terminal and run:
