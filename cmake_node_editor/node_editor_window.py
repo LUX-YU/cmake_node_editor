@@ -293,6 +293,13 @@ class NodeEditorWindow(QMainWindow):
         act_partial = project_menu.addAction("Partial Build")
         act_partial.triggered.connect(self.onPartialBuild)
 
+        edit_menu = menubar.addMenu("Edit")
+        self.act_add_node = edit_menu.addAction("Add Node")
+        self.act_add_node.triggered.connect(self.onAddNodeDialog)
+        self.act_remove_node = edit_menu.addAction("Remove Node")
+        self.act_remove_node.triggered.connect(self.onDeleteNode)
+        self.act_remove_node.setEnabled(False)
+
         windows_menu = menubar.addMenu("Windows")
         self.act_win_properties = windows_menu.addAction("Node Properties")
         self.act_win_properties.setCheckable(True)
@@ -546,10 +553,14 @@ class NodeEditorWindow(QMainWindow):
             self.current_node = sel_items[0]
             self.updatePropertiesPanelFromNode()
             self.dock_properties.show()
+            if hasattr(self, 'act_remove_node'):
+                self.act_remove_node.setEnabled(True)
         else:
             self.current_node = None
             self.clearPropertiesPanel()
             self.dock_properties.hide()
+            if hasattr(self, 'act_remove_node'):
+                self.act_remove_node.setEnabled(False)
 
     def clearPropertiesPanel(self):
         self.edit_node_name.clear()
