@@ -1,4 +1,4 @@
-from dataclasses import dataclass, is_dataclass, asdict, field
+from dataclasses import dataclass, is_dataclass, asdict, field, fields
 from PyQt6.QtWidgets import QGraphicsPathItem
 import json
 
@@ -68,4 +68,17 @@ def to_json(data, indent=4, ensure_ascii=False):
     
 def from_json(json_str, data_class):
     data_dict = json.loads(json_str)
-    return data_class(**data_dict)
+    def _construct(value, cls):
+        if is_dataclass(cls) and isinstance(value, dict):
+            kwargs = {}
+            for f in fields(cls):
+                if f.name in value:
+                    kwargs[f.name] = _construct(value[f.name], f.type)
+            return cls(**kwargs)
+        origin = getattr(cls, "__origin__", None)
+        if origin is list and isinstance(value, list):
+            item_type = cls.__args__[0]
+            return [_construct(v, item_type) for v in value]
+        return value
+
+    return _construct(data_dict, data_class)
