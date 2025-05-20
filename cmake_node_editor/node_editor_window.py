@@ -371,22 +371,29 @@ class NodeEditorWindow(QMainWindow):
     def onAddNodeDialog(self):
         dlg = NodeCreationDialog(self, existing_nodes=self.scene.nodes)
         if dlg.exec() == dlg.DialogCode.Accepted:
-            node_name, opts, proj_path, inherit_idx, flags = dlg.getNodeData()
+            node_name, opts, proj_path, inherit_idx, attrs = dlg.getNodeData()
             if inherit_idx >= 0 and inherit_idx < len(self.scene.nodes):
                 base_node = self.scene.nodes[inherit_idx]
             else:
                 base_node = None
             if base_node:
-                if flags.get("project"):
+                bs = None
+                code_before = ""
+                code_after = ""
+                if "project_path" in attrs:
                     proj_path = base_node.projectPath()
-                if flags.get("options"):
+                if "cmake_options" in attrs:
                     opts = list(base_node.cmakeOptions())
-                if flags.get("build"):
+                if "build_settings" in attrs:
                     bs = base_node.buildSettings()
-                else:
-                    bs = None
+                if "code_before_build" in attrs:
+                    code_before = base_node.codeBeforeBuild()
+                if "code_after_install" in attrs:
+                    code_after = base_node.codeAfterInstall()
             else:
                 bs = None
+                code_before = ""
+                code_after = ""
 
             if not node_name:
                 node_name = f"Node_{self.scene.nodeCounter}"
@@ -394,6 +401,10 @@ class NodeEditorWindow(QMainWindow):
                 QMessageBox.warning(self, "Warning", f"Node name '{node_name}' already exists.")
                 return
             new_node = self.scene.addNewNode(node_name, opts, proj_path, bs)
+            if code_before:
+                new_node.setCodeBeforeBuild(code_before)
+            if code_after:
+                new_node.setCodeAfterInstall(code_after)
             self.scene.clearSelection()
             new_node.setSelected(True)
 
