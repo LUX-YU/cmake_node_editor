@@ -555,7 +555,6 @@ class NodeEditorWindow(QMainWindow):
             if not found_end:
                 QMessageBox.warning(self, "Warning", f"End node ID {end_node_id} not found.")
                 return
-
         if end_index <= start_index:
             QMessageBox.warning(self, "Warning", "Invalid node range specified.")
             return
