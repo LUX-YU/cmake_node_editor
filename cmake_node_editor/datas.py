@@ -34,9 +34,9 @@ class EdgeData:
 
 @dataclass
 class CommandData:
-    type : str|list[str] # "cmd" or "script"
-    cmd : str
-    display_name : str
+    type: str  # "cmd" or "script"
+    cmd: str | list[str]
+    display_name: str
 
 @dataclass
 class NodeCommands:

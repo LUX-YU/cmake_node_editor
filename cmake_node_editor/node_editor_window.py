@@ -199,7 +199,7 @@ class NodeRangeDialog(QDialog):
         buttons.rejected.connect(self.reject)
         layout.addWidget(buttons)
 
-    def getValues(self):
+    def getValues(self) -> tuple[int, int]:
         return self.start_spin.value(), self.end_spin.value()
 
 class NodeEditorWindow(QMainWindow):
@@ -391,7 +391,7 @@ class NodeEditorWindow(QMainWindow):
             self.scene.setGridOpacity(opacity)
             self.scene.setLinkColor(link_color)
 
-    def onPartialStage(self, stage: str):
+    def onPartialStage(self, stage: str) -> None:
         sorted_nodes = self.scene.topologicalSort()
         if not sorted_nodes:
             QMessageBox.information(self, "Info", "No nodes available")
@@ -474,7 +474,7 @@ class NodeEditorWindow(QMainWindow):
             if hasattr(self, 'act_edit_node'):
                 self.act_edit_node.setEnabled(False)
 
-    def openNodePropertyDialog(self, node: NodeItem):
+    def openNodePropertyDialog(self, node: NodeItem) -> None:
         if not node:
             return
         dlg = NodePropertiesDialog(node, self)
@@ -504,7 +504,14 @@ class NodeEditorWindow(QMainWindow):
     # ----------------------------------------------------------------
     # Asynchronous build flow
     # ----------------------------------------------------------------
-    def runStage(self, stage="build", start_node_id=None, end_node_id=None, force_first=False, only_first=False):
+    def runStage(
+        self,
+        stage: str = "build",
+        start_node_id: int | None = None,
+        end_node_id: int | None = None,
+        force_first: bool = False,
+        only_first: bool = False,
+    ) -> None:
         """
         Build ProjectCommands for the given stage (configure/build/install) and
         execute them in a worker process.

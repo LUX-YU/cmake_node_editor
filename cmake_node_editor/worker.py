@@ -23,6 +23,55 @@ import subprocess
 import traceback
 from multiprocessing import Queue
 
+
+class CommandExecutor:
+    """Strategy class to execute different types of CommandData."""
+
+    def __init__(self, result_queue: Queue):
+        self.result_queue = result_queue
+
+    def execute(self, cmd_data: CommandData) -> bool:
+        """Execute the given command and log output to result_queue."""
+        try:
+            if cmd_data.type == "script":
+                self.result_queue.put(SubprocessLogData(index=-1,
+                    log=f"[Worker] Executing script: {cmd_data.display_name}"))
+                import io, contextlib
+                buf = io.StringIO()
+                with contextlib.redirect_stdout(buf):
+                    exec(cmd_data.cmd, {}, {})
+                out = buf.getvalue()
+                if out:
+                    self.result_queue.put(SubprocessLogData(index=-1, log=out))
+                self.result_queue.put(SubprocessLogData(index=-1,
+                    log=f"[Worker] Script executed successfully: {cmd_data.display_name}"))
+                return True
+
+            if cmd_data.type == "cmd":
+                self.result_queue.put(SubprocessLogData(index=-1,
+                    log=f"[Worker] Executing command: {cmd_data.display_name}\n{cmd_data.cmd}"))
+                run_res = subprocess.run(cmd_data.cmd, check=False, capture_output=True, text=True)
+                if run_res.stdout:
+                    self.result_queue.put(SubprocessLogData(index=-1, log=run_res.stdout))
+                if run_res.stderr:
+                    self.result_queue.put(SubprocessLogData(index=-1, log=run_res.stderr))
+                if run_res.returncode == 0:
+                    self.result_queue.put(SubprocessLogData(index=-1,
+                        log=f"[Worker] Command succeeded: {cmd_data.display_name}"))
+                    return True
+                self.result_queue.put(SubprocessLogData(index=-1,
+                    log=f"[Worker] Command failed: {cmd_data.display_name}, returncode={run_res.returncode}"))
+                return False
+
+            self.result_queue.put(SubprocessLogData(index=-1,
+                log=f"[Worker] Unknown command type: {cmd_data.type}"))
+            return False
+        except Exception as e:  # pragma: no cover - protect from unexpected errors
+            tb = "".join(traceback.format_exception(*sys.exc_info()))
+            self.result_queue.put(SubprocessLogData(index=-1,
+                log=f"[Worker] Exception while executing command: {cmd_data.display_name}\n{e}\n{tb}"))
+            return False
+
 from .datas import (
     ProjectCommands, NodeCommands, CommandData,
     SubprocessLogData, SubprocessResponseData
@@ -125,6 +174,8 @@ def worker_main(task_queue: Queue, result_queue: Queue):
     
     result_queue.put(SubprocessLogData(index=-1, log="[Worker] Worker process started."))
 
+    executor = CommandExecutor(result_queue)
+
     while True:
         task = task_queue.get()
         if task is None or task == "QUIT":
@@ -139,7 +190,7 @@ def worker_main(task_queue: Queue, result_queue: Queue):
                 for idx, node_cmds in enumerate(task.node_commands_list):
                     node_failed = False
                     for cmdData in node_cmds.cmd_list:
-                        ok = do_execute_command(cmdData, result_queue)
+                        ok = executor.execute(cmdData)
                         if not ok:
                             result_queue.put(SubprocessResponseData(index=idx, result=False))
                             node_failed = True
@@ -171,64 +222,6 @@ def worker_main(task_queue: Queue, result_queue: Queue):
     result_queue.put(SubprocessLogData(index=-1, log="[Worker] Worker process finished."))
 
 def do_execute_command(cmdData: CommandData, result_queue: Queue) -> bool:
-    """
-    Executes a single command or script and sends execution logs to the result_queue.
-
-    Supports two types of commands:
-      - "script": Executes a Python script via exec().
-      - "cmd": Executes an external command using subprocess.run().
-
-    Args:
-      cmdData (CommandData): Object containing the command type, the command content, and a display name.
-      result_queue (Queue): Queue for sending execution logs and error information.
-
-    Returns:
-      bool: True if the command executed successfully; False otherwise.
-    """
-    try:
-        if cmdData.type == "script":
-            result_queue.put(SubprocessLogData(index=-1,
-                log=f"[Worker] Executing script: {cmdData.display_name}"))
-            import io, contextlib
-            buf = io.StringIO()
-            with contextlib.redirect_stdout(buf):
-                exec(cmdData.cmd, {}, {})
-            out = buf.getvalue()
-            if out:
-                result_queue.put(SubprocessLogData(index=-1, log=out))
-            result_queue.put(SubprocessLogData(index=-1,
-                log=f"[Worker] Script executed successfully: {cmdData.display_name}"))
-            return True
-
-        elif cmdData.type == "cmd":
-            result_queue.put(SubprocessLogData(index=-1, 
-                log=f"[Worker] Executing command: {cmdData.display_name}\n{cmdData.cmd}"))
-            
-            # Execute the external command and capture its standard output and error.
-            run_res = subprocess.run(cmdData.cmd, check=False, capture_output=True, text=True)
-            if run_res.stdout:
-                result_queue.put(SubprocessLogData(index=-1, log=run_res.stdout))
-            if run_res.stderr:
-                result_queue.put(SubprocessLogData(index=-1, log=run_res.stderr))
-            
-            if run_res.returncode == 0:
-                result_queue.put(SubprocessLogData(index=-1, 
-                    log=f"[Worker] Command succeeded: {cmdData.display_name}"))
-                return True
-            else:
-                result_queue.put(SubprocessLogData(index=-1, 
-                    log=f"[Worker] Command failed: {cmdData.display_name}, returncode={run_res.returncode}"))
-                return False
-
-        else:
-            # Log an error for any unknown command type.
-            result_queue.put(SubprocessLogData(index=-1, 
-                log=f"[Worker] Unknown command type: {cmdData.type}"))
-            return False
-
-    except Exception as e:
-        # Catch any exception during command execution, log detailed error info and traceback.
-        tb = "".join(traceback.format_exception(*sys.exc_info()))
-        result_queue.put(SubprocessLogData(index=-1, 
-            log=f"[Worker] Exception while executing command: {cmdData.display_name}\n{e}\n{tb}"))
-        return False
+    """Compatibility wrapper using :class:`CommandExecutor`."""
+    executor = CommandExecutor(result_queue)
+    return executor.execute(cmdData)
