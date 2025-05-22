@@ -16,6 +16,7 @@ It includes the following key functionalities:
 Note: This module depends on data structures defined in the .datas module, including:
       ProjectCommands, NodeCommands, CommandData, SubprocessLogData, and SubprocessResponseData.
 """
+from __future__ import annotations
 
 import sys
 import os
