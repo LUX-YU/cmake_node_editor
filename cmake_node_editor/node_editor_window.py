@@ -7,7 +7,8 @@ from PyQt6.QtGui import QPainter, QWheelEvent, QMouseEvent
 from PyQt6.QtWidgets import (
     QApplication, QMainWindow, QDockWidget, QWidget, QFormLayout, QVBoxLayout, QHBoxLayout,
     QPlainTextEdit, QLineEdit, QPushButton, QLabel, QComboBox, QMessageBox,
-    QFileDialog, QGraphicsView, QScrollArea, QProgressBar, QInputDialog, QMenu
+    QFileDialog, QGraphicsView, QScrollArea, QProgressBar, QInputDialog, QMenu,
+    QListWidget, QListWidgetItem
 )
 
 from .node_scene import NodeScene, NodeItem, Edge
@@ -116,12 +117,34 @@ class NodeView(QGraphicsView):
         item = self.scene().itemAt(scene_pos, self.transform())
         menu = QMenu(self)
         if isinstance(item, NodeItem):
+            act_cfg_node = menu.addAction("Configure Node")
+            act_build_node = menu.addAction("Build Node")
+            act_install_node = menu.addAction("Install Node")
+            menu.addSeparator()
+            act_cfg_from = menu.addAction("Configure From This")
+            act_build_from = menu.addAction("Build From This")
+            act_install_from = menu.addAction("Install From This")
+            menu.addSeparator()
             act_prop = menu.addAction("Properties")
             action = menu.exec(global_pos)
-            if action == act_prop:
-                parent = self.parent()
-                if parent and hasattr(parent, 'openNodePropertyDialog'):
-                    parent.openNodePropertyDialog(item)
+            parent = self.parent()
+            if not parent:
+                return
+            if action == act_prop and hasattr(parent, 'openNodePropertyDialog'):
+                parent.openNodePropertyDialog(item)
+            elif hasattr(parent, 'runStage'):
+                if action == act_cfg_node:
+                    parent.runStage(stage="configure", start_node_name=item.title(), only_first=True)
+                elif action == act_build_node:
+                    parent.runStage(stage="build", start_node_name=item.title(), only_first=True)
+                elif action == act_install_node:
+                    parent.runStage(stage="install", start_node_name=item.title(), only_first=True)
+                elif action == act_cfg_from:
+                    parent.runStage(stage="configure", start_node_name=item.title())
+                elif action == act_build_from:
+                    parent.runStage(stage="build", start_node_name=item.title())
+                elif action == act_install_from:
+                    parent.runStage(stage="install", start_node_name=item.title())
         else:
             act_new = menu.addAction("Create Node")
             action = menu.exec(global_pos)
@@ -164,7 +187,6 @@ class NodeEditorWindow(QMainWindow):
         # Prepare dock widgets
 
         self.initBuildOutputDock()
-        self.initBuildControlsDock()
         self.initTopologyDock()
 
         # Setup other UI pieces
@@ -200,33 +222,14 @@ class NodeEditorWindow(QMainWindow):
         self.dock_build_output.setWidget(self.build_output_text)
         self.addDockWidget(Qt.DockWidgetArea.BottomDockWidgetArea, self.dock_build_output)
 
-    def initBuildControlsDock(self):
-        """Create the dock widget used for global build controls."""
-        self.dock_build_controls = QDockWidget("Build Controls", self)
-        widget = QWidget()
-        layout = QVBoxLayout(widget)
-
-        form = QFormLayout()
-        self.edit_start_node_id = QLineEdit()
-        form.addRow("Start Node ID:", self.edit_start_node_id)
-        layout.addLayout(form)
-
-        self.btn_build_all = QPushButton("Start Build")
-        self.btn_build_all.clicked.connect(self.onBuildAll)
-        layout.addWidget(self.btn_build_all)
-
-        layout.addStretch()
-        self.dock_build_controls.setWidget(widget)
-        self.addDockWidget(Qt.DockWidgetArea.RightDockWidgetArea, self.dock_build_controls)
-
 
     def initTopologyDock(self):
         """
         Dock for topology order display.
         """
-        self.dock_topology = QDockWidget("Topology Order", self)
-        self.topology_view = QPlainTextEdit()
-        self.topology_view.setReadOnly(True)
+        self.dock_topology = QDockWidget("Node Inspector", self)
+        self.topology_view = QListWidget()
+        self.topology_view.itemClicked.connect(self.onInspectorItemClicked)
         self.dock_topology.setWidget(self.topology_view)
         self.addDockWidget(Qt.DockWidgetArea.LeftDockWidgetArea, self.dock_topology)
 
@@ -275,10 +278,19 @@ class NodeEditorWindow(QMainWindow):
         act_settings.triggered.connect(self.onSettings)
 
         project_menu = menubar.addMenu("Project")
-        act_full = project_menu.addAction("Full Build")
-        act_full.triggered.connect(lambda: self.onBuildAll(start_node_name=None, force_first=True))
-        act_partial = project_menu.addAction("Partial Build")
-        act_partial.triggered.connect(self.onPartialBuild)
+        act_full_cfg = project_menu.addAction("Full Configure")
+        act_full_cfg.triggered.connect(lambda: self.runStage(stage="configure", force_first=True))
+        act_full_build = project_menu.addAction("Full Build")
+        act_full_build.triggered.connect(lambda: self.runStage(stage="build", force_first=True))
+        act_full_install = project_menu.addAction("Full Install")
+        act_full_install.triggered.connect(lambda: self.runStage(stage="install", force_first=True))
+        project_menu.addSeparator()
+        act_part_cfg = project_menu.addAction("Partial Configure")
+        act_part_cfg.triggered.connect(lambda: self.onPartialStage("configure"))
+        act_part_build = project_menu.addAction("Partial Build")
+        act_part_build.triggered.connect(lambda: self.onPartialStage("build"))
+        act_part_install = project_menu.addAction("Partial Install")
+        act_part_install.triggered.connect(lambda: self.onPartialStage("install"))
 
         edit_menu = menubar.addMenu("Edit")
         self.act_add_node = edit_menu.addAction("Add Node")
@@ -292,17 +304,12 @@ class NodeEditorWindow(QMainWindow):
 
         windows_menu = menubar.addMenu("Windows")
 
-        self.act_win_build_ctrl = windows_menu.addAction("Build Controls")
-        self.act_win_build_ctrl.setCheckable(True)
-        self.act_win_build_ctrl.setChecked(True)
-        self.act_win_build_ctrl.toggled.connect(self.dock_build_controls.setVisible)
-
         self.act_win_build_out = windows_menu.addAction("Build Output")
         self.act_win_build_out.setCheckable(True)
         self.act_win_build_out.setChecked(True)
         self.act_win_build_out.toggled.connect(self.dock_build_output.setVisible)
 
-        self.act_win_topology = windows_menu.addAction("Topology Order")
+        self.act_win_topology = windows_menu.addAction("Node Inspector")
         self.act_win_topology.setCheckable(True)
         self.act_win_topology.setChecked(True)
         self.act_win_topology.toggled.connect(self.dock_topology.setVisible)
@@ -321,11 +328,7 @@ class NodeEditorWindow(QMainWindow):
         if not filepath:
             return
 
-        global_cfg = {
-            "start_node_id": self.edit_start_node_id.text().strip()
-        }
-
-        self.scene.saveProjectToJson(filepath, global_cfg.get("start_node_id"))
+        self.scene.saveProjectToJson(filepath, None)
         QMessageBox.information(self, "Info", "Project has been saved!")
 
     def onLoadProject(self):
@@ -336,16 +339,9 @@ class NodeEditorWindow(QMainWindow):
         if not filepath:
             return
 
-        global_cfg = self.scene.loadProjectFromJson(filepath)
-        self.restoreGlobalConfig(global_cfg)
+        self.scene.loadProjectFromJson(filepath)
         QMessageBox.information(self, "Info", "Project loaded!")
         self.updateTopologyView()
-
-    def restoreGlobalConfig(self, global_cfg):
-        """
-        Restore global build settings from the loaded dict.
-        """
-        self.edit_start_node_id.setText(global_cfg.get("start_node_id", ""))
 
     def onSettings(self):
         current_style = QApplication.style().objectName()
@@ -356,14 +352,14 @@ class NodeEditorWindow(QMainWindow):
             self.scene.setGridOpacity(opacity)
             self.scene.setLinkColor(link_color)
 
-    def onPartialBuild(self):
+    def onPartialStage(self, stage: str):
         names = [n.title() for n in self.scene.nodes]
         if not names:
             QMessageBox.information(self, "Info", "No nodes available")
             return
-        name, ok = QInputDialog.getItem(self, "Partial Build", "Start from node:", names, 0, False)
+        name, ok = QInputDialog.getItem(self, f"Partial {stage.title()}", "Start from node:", names, 0, False)
         if ok and name:
-            self.onBuildAll(start_node_name=name)
+            self.runStage(stage=stage, start_node_name=name)
 
     # ----------------------------------------------------------------
     # Node operations
@@ -440,21 +436,28 @@ class NodeEditorWindow(QMainWindow):
     # ----------------------------------------------------------------
     def updateTopologyView(self):
         sorted_nodes = self.scene.topologicalSort()
+        self.topology_view.clear()
         if sorted_nodes is None:
-            self.topology_view.setPlainText("Detected circular dependency, cannot build.")
+            self.topology_view.addItem("Detected circular dependency, cannot build.")
         else:
-            lines = []
             for i, node_item in enumerate(sorted_nodes):
-                lines.append(f"{i+1}. {node_item.title()} (ID={node_item.id()})")
-            self.topology_view.setPlainText("\n".join(lines))
+                item = QListWidgetItem(f"{i+1}. {node_item.title()} (ID={node_item.id()})")
+                item.setData(Qt.ItemDataRole.UserRole, node_item)
+                self.topology_view.addItem(item)
+
+    def onInspectorItemClicked(self, item: QListWidgetItem):
+        node = item.data(Qt.ItemDataRole.UserRole)
+        if node:
+            self.view.resetTransform()
+            self.view.centerOn(node)
 
     # ----------------------------------------------------------------
     # Asynchronous build flow
     # ----------------------------------------------------------------
-    def onBuildAll(self, start_node_name=None, force_first=False):
+    def runStage(self, stage="build", start_node_name=None, force_first=False, only_first=False):
         """
-        Gather global build config, do a topological sort, build a ProjectCommands,
-        start the worker process & result thread, then send the commands to the worker.
+        Build ProjectCommands for the given stage (configure/build/install) and
+        execute them in a worker process.
         """
         self.build_output_text.clear()
 
@@ -476,20 +479,6 @@ class NodeEditorWindow(QMainWindow):
                     break
             if start_id is None:
                 QMessageBox.warning(self, "Warning", f"Node '{start_node_name}' not found, building from beginning.")
-        else:
-            start_node_id_str = self.edit_start_node_id.text().strip()
-            if start_node_id_str:
-                try:
-                    sid = int(start_node_id_str)
-                    for idx, node_item in enumerate(sorted_nodes):
-                        if node_item.id() == sid:
-                            start_id = sid
-                            start_index = idx
-                            break
-                    if start_id is None:
-                        QMessageBox.warning(self, "Warning", f"Node ID={sid} not found, building from beginning.")
-                except ValueError:
-                    QMessageBox.warning(self, "Warning", f"Start Node ID '{start_node_id_str}' invalid, building from beginning.")
 
         project_commands = ProjectCommands(
             start_node_id=start_id if start_id is not None else -1,
@@ -511,7 +500,7 @@ class NodeEditorWindow(QMainWindow):
             cxx_compiler = bs.cxx_compiler
 
             # Pre-build script
-            if node_obj.codeBeforeBuild().strip():
+            if stage in ("configure", "all") and node_obj.codeBeforeBuild().strip():
                 pre_script_cmd = CommandData(
                     type="script",
                     cmd=node_obj.codeBeforeBuild(),
@@ -556,9 +545,10 @@ class NodeEditorWindow(QMainWindow):
             for opt in node_obj.cmakeOptions():
                 cmd_configure.append(opt)
 
-            node_cmd.cmd_list.append(CommandData(
-                type="cmd", cmd=cmd_configure, display_name=f"Configure {project_name}"
-            ))
+            if stage in ("configure", "all"):
+                node_cmd.cmd_list.append(CommandData(
+                    type="cmd", cmd=cmd_configure, display_name=f"Configure {project_name}"
+                ))
 
             # Build command
             cmd_build = [
@@ -566,33 +556,35 @@ class NodeEditorWindow(QMainWindow):
                 "--config", build_type,
                 "--parallel", str(multiprocessing.cpu_count())
             ]
-            node_cmd.cmd_list.append(CommandData(
-                type="cmd", cmd=cmd_build, display_name=f"Build {project_name}"
-            ))
+            if stage in ("build", "all"):
+                node_cmd.cmd_list.append(CommandData(
+                    type="cmd", cmd=cmd_build, display_name=f"Build {project_name}"
+                ))
 
             # Install command
             cmd_install = ["cmake", "--install", node_build_dir, "--config", build_type]
-            node_cmd.cmd_list.append(CommandData(
-                type="cmd", cmd=cmd_install, display_name=f"Install {project_name}"
-            ))
+            if stage in ("install", "all"):
+                node_cmd.cmd_list.append(CommandData(
+                    type="cmd", cmd=cmd_install, display_name=f"Install {project_name}"
+                ))
 
-            # Post-install script
-            if node_obj.codeAfterInstall().strip():
-                post_script_cmd = CommandData(
-                    type="script",
-                    cmd=node_obj.codeAfterInstall(),
-                    display_name=f"Post-Install Script {project_name}"
-                )
-                node_cmd.cmd_list.append(post_script_cmd)
+                if node_obj.codeAfterInstall().strip():
+                    post_script_cmd = CommandData(
+                        type="script",
+                        cmd=node_obj.codeAfterInstall(),
+                        display_name=f"Post-Install Script {project_name}"
+                    )
+                    node_cmd.cmd_list.append(post_script_cmd)
 
             project_commands.node_commands_list.append(node_cmd)
+            if only_first:
+                break
 
         if not project_commands.node_commands_list:
-            QMessageBox.information(self, "Info", "No commands to build.")
+            QMessageBox.information(self, "Info", "No commands to run.")
             return
 
-        # Disable build button and setup progress bar
-        self.btn_build_all.setEnabled(False)
+        # Setup progress bar
         self.total_steps = len(project_commands.node_commands_list)
         self.progress_bar.setMaximum(self.total_steps)
         self.progress_bar.setValue(0)
@@ -645,7 +637,6 @@ class NodeEditorWindow(QMainWindow):
             else:
                 self.build_output_text.appendPlainText("Build Failed!")
 
-            # Stop worker process, re-enable build button
+            # Stop worker process
             self.stopWorkerProcess()
-            self.btn_build_all.setEnabled(True)
             self.progress_bar.hide()
