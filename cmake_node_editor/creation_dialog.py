@@ -151,7 +151,7 @@ class NodeCreationDialog(QDialog):
 
         self.accept()
 
-    def getNodeData(self):
+    def getNodeData(self) -> tuple[str, list[str], str, int, list[str]]:
         """
         Return (node_name, cmake_options, project_path, inherit_index, inherit_attrs) as a tuple.
         node_name  : str

@@ -10,7 +10,6 @@ from PyQt6.QtWidgets import (
 )
 
 from dataclasses import asdict
-import os
 from .datas import NodeData, EdgeData, BuildSettings
 
 
@@ -417,7 +416,13 @@ class NodeScene(QGraphicsScene):
         if self.topology_changed_callback:
             self.topology_changed_callback()
 
-    def addNewNode(self, title, cmake_options, project_path, build_settings=None):
+    def addNewNode(
+        self,
+        title: str,
+        cmake_options: list[str],
+        project_path: str,
+        build_settings: BuildSettings | None = None,
+    ) -> "NodeItem":
         """
         Create a new NodeItem, place it in the scene, and update topology.
         """
@@ -465,7 +470,7 @@ class NodeScene(QGraphicsScene):
             self.nodes.remove(node_item)
             self.notifyTopologyChanged()
 
-    def addEdge(self, source_pin, target_pin):
+    def addEdge(self, source_pin: Pin, target_pin: Pin) -> None:
         """
         Create an Edge from source_pin to target_pin, add to scene, update path, notify topology.
         """
@@ -483,7 +488,7 @@ class NodeScene(QGraphicsScene):
         edge.updatePath()
         self.notifyTopologyChanged()
 
-    def removeEdge(self, edge):
+    def removeEdge(self, edge: Edge) -> None:
         """
         Remove the given edge from the scene.
         """
