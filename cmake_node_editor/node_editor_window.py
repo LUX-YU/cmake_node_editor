@@ -2,13 +2,13 @@ import os
 import multiprocessing
 from multiprocessing import Queue
 
-from PyQt6.QtCore import Qt, QThread, pyqtSignal
-from PyQt6.QtGui import QPainter, QWheelEvent, QMouseEvent
+from PyQt6.QtCore import Qt, QThread, pyqtSignal, QUrl
+from PyQt6.QtGui import QPainter, QWheelEvent, QMouseEvent, QDesktopServices
 from PyQt6.QtWidgets import (
     QApplication, QMainWindow, QDockWidget, QWidget, QFormLayout, QVBoxLayout, QHBoxLayout,
     QPlainTextEdit, QLineEdit, QPushButton, QLabel, QComboBox, QMessageBox,
-    QFileDialog, QGraphicsView, QScrollArea, QProgressBar, QInputDialog, QMenu,
-    QListWidget, QListWidgetItem
+    QFileDialog, QGraphicsView, QScrollArea, QProgressBar, QMenu,
+    QListWidget, QListWidgetItem, QSpinBox, QDialog, QDialogButtonBox
 )
 
 from .node_scene import NodeScene, NodeItem, Edge
@@ -125,6 +125,8 @@ class NodeView(QGraphicsView):
             act_build_from = menu.addAction("Build From This")
             act_install_from = menu.addAction("Install From This")
             menu.addSeparator()
+            act_open_dir = menu.addAction("Open Project Directory")
+            menu.addSeparator()
             act_prop = menu.addAction("Properties")
             action = menu.exec(global_pos)
             parent = self.parent()
@@ -132,6 +134,12 @@ class NodeView(QGraphicsView):
                 return
             if action == act_prop and hasattr(parent, 'openNodePropertyDialog'):
                 parent.openNodePropertyDialog(item)
+            elif action == act_open_dir:
+                proj_dir = item.projectPath()
+                if proj_dir and os.path.isdir(proj_dir):
+                    QDesktopServices.openUrl(QUrl.fromLocalFile(os.path.abspath(proj_dir)))
+                else:
+                    QMessageBox.warning(self, "Warning", "Invalid project directory")
             elif hasattr(parent, 'runStage'):
                 if action == act_cfg_node:
                     parent.runStage(stage="configure", start_node_id=item.id(), only_first=True)
@@ -162,6 +170,37 @@ class NodeView(QGraphicsView):
             event.accept()
         else:
             super().keyPressEvent(event)
+
+
+class NodeRangeDialog(QDialog):
+    """Dialog to input a start and end node ID."""
+
+    def __init__(self, min_id: int, max_id: int, parent=None):
+        super().__init__(parent)
+        self.setWindowTitle("Select Node ID Range")
+        layout = QVBoxLayout(self)
+
+        form = QFormLayout()
+        self.start_spin = QSpinBox()
+        self.start_spin.setRange(min_id, max_id)
+        self.start_spin.setValue(min_id)
+        self.end_spin = QSpinBox()
+        self.end_spin.setRange(min_id, max_id)
+        self.end_spin.setValue(max_id)
+        form.addRow("Start ID:", self.start_spin)
+        form.addRow("End ID:", self.end_spin)
+        layout.addLayout(form)
+
+        buttons = QDialogButtonBox(
+            QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel,
+            parent=self,
+        )
+        buttons.accepted.connect(self.accept)
+        buttons.rejected.connect(self.reject)
+        layout.addWidget(buttons)
+
+    def getValues(self):
+        return self.start_spin.value(), self.end_spin.value()
 
 class NodeEditorWindow(QMainWindow):
     """
@@ -357,22 +396,18 @@ class NodeEditorWindow(QMainWindow):
         if not sorted_nodes:
             QMessageBox.information(self, "Info", "No nodes available")
             return
-        range_str, ok = QInputDialog.getText(
-            self,
-            f"Partial {stage.title()}",
-            "Enter node ID range (start-end):"
-        )
-        if ok and range_str:
-            try:
-                parts = range_str.replace(",", "-").split("-")
-                if len(parts) == 2:
-                    s_id = int(parts[0].strip())
-                    e_id = int(parts[1].strip())
-                else:
-                    s_id = int(parts[0].strip())
-                    e_id = None
-            except Exception:
-                QMessageBox.warning(self, "Warning", "Invalid range format.")
+        dlg = NodeRangeDialog(sorted_nodes[0].id(), sorted_nodes[-1].id(), self)
+        if dlg.exec() == QDialog.DialogCode.Accepted:
+            s_id, e_id = dlg.getValues()
+            ids = [n.id() for n in sorted_nodes]
+            if s_id not in ids:
+                QMessageBox.warning(self, "Warning", f"Start ID {s_id} not found.")
+                return
+            if e_id not in ids:
+                QMessageBox.warning(self, "Warning", f"End ID {e_id} not found.")
+                return
+            if ids.index(e_id) < ids.index(s_id):
+                QMessageBox.warning(self, "Warning", "Invalid node range.")
                 return
             self.runStage(stage=stage, start_node_id=s_id, end_node_id=e_id)
 
@@ -506,17 +541,20 @@ class NodeEditorWindow(QMainWindow):
                     start_index = idx
                     break
             if start_id is None:
-                QMessageBox.warning(self, "Warning", f"Node ID {start_node_id} not found, building from beginning.")
+                QMessageBox.warning(self, "Warning", f"Start node ID {start_node_id} not found.")
+                return
 
         end_index = len(sorted_nodes)
         if end_node_id is not None:
+            found_end = False
             for idx, node_item in enumerate(sorted_nodes):
                 if node_item.id() == end_node_id:
                     end_index = idx + 1
+                    found_end = True
                     break
-            if end_index == len(sorted_nodes):
-                QMessageBox.warning(self, "Warning", f"End node ID {end_node_id} not found, building to the end.")
-
+            if not found_end:
+                QMessageBox.warning(self, "Warning", f"End node ID {end_node_id} not found.")
+                return
         if end_index <= start_index:
             QMessageBox.warning(self, "Warning", "Invalid node range specified.")
             return
