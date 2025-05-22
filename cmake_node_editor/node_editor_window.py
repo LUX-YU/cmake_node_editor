@@ -19,6 +19,7 @@ from .datas import (
 from .creation_dialog import NodeCreationDialog
 from .settings_dialog import SettingsDialog
 from .node_properties_dialog import NodePropertiesDialog
+from .batch_edit_dialog import BatchEditDialog
 from .worker import worker_main
 
 class ResultListenerThread(QThread):
@@ -337,6 +338,8 @@ class NodeEditorWindow(QMainWindow):
         self.act_edit_node = edit_menu.addAction("Edit Node")
         self.act_edit_node.triggered.connect(lambda: self.openNodePropertyDialog(self.current_node))
         self.act_edit_node.setEnabled(False)
+        self.act_batch_edit = edit_menu.addAction("Batch Edit")
+        self.act_batch_edit.triggered.connect(self.onBatchEditNodes)
         self.act_remove_node = edit_menu.addAction("Remove Node")
         self.act_remove_node.triggered.connect(self.onDeleteNode)
         self.act_remove_node.setEnabled(False)
@@ -480,6 +483,12 @@ class NodeEditorWindow(QMainWindow):
         dlg = NodePropertiesDialog(node, self)
         if dlg.exec() == dlg.DialogCode.Accepted:
             dlg.applyToNode()
+
+    def onBatchEditNodes(self):
+        dlg = BatchEditDialog(self.scene.nodes, self)
+        if dlg.exec() == dlg.DialogCode.Accepted:
+            if dlg.applyToNodes():
+                self.updateTopologyView()
 
     # ----------------------------------------------------------------
     # Topology view
