@@ -3,7 +3,8 @@ from PyQt6.QtCore import Qt
 from PyQt6.QtWidgets import (
     QDialog, QVBoxLayout, QHBoxLayout, QFormLayout, QScrollArea, QWidget,
     QLabel, QLineEdit, QPushButton, QPlainTextEdit, QComboBox,
-    QDialogButtonBox, QListWidget, QListWidgetItem, QMessageBox
+    QDialogButtonBox, QListWidget, QListWidgetItem, QMessageBox,
+    QSplitter
 )
 
 from .datas import BuildSettings
@@ -28,22 +29,27 @@ class BatchEditDialog(QDialog):
     def _buildUI(self):
         layout = QVBoxLayout(self)
 
-        layout.addWidget(QLabel("Select Nodes:"))
+        splitter = QSplitter(Qt.Orientation.Vertical)
+        layout.addWidget(splitter)
+
+        node_widget = QWidget()
+        node_layout = QVBoxLayout(node_widget)
+        node_layout.addWidget(QLabel("Select Nodes:"))
         self.list_nodes = QListWidget()
         for n in self.nodes:
             item = QListWidgetItem(f"{n.title()} (ID={n.id()})")
             item.setData(Qt.ItemDataRole.UserRole, n)
             item.setCheckState(Qt.CheckState.Checked)
             self.list_nodes.addItem(item)
-        layout.addWidget(self.list_nodes)
+        node_layout.addWidget(self.list_nodes)
         btn_sel_all = QPushButton("Select All")
         btn_sel_all.clicked.connect(self.onSelectAll)
-        layout.addWidget(btn_sel_all)
+        node_layout.addWidget(btn_sel_all)
+        splitter.addWidget(node_widget)
+        splitter.setStretchFactor(0, 1)
 
-        form_name = QFormLayout()
-        self.edit_node_name = QLineEdit()
-        form_name.addRow("Name:", self.edit_node_name)
-        layout.addLayout(form_name)
+        details_widget = QWidget()
+        details_layout = QVBoxLayout(details_widget)
 
         self.cmake_option_layout = QVBoxLayout()
         btn_row = QHBoxLayout()
@@ -57,7 +63,7 @@ class BatchEditDialog(QDialog):
         option_scroll = QScrollArea()
         option_scroll.setWidgetResizable(True)
         option_scroll.setWidget(option_container)
-        layout.addWidget(option_scroll)
+        details_layout.addWidget(option_scroll)
 
         form_build = QFormLayout()
         self.edit_build_dir = QLineEdit(os.path.join(os.getcwd(), "build"))
@@ -90,15 +96,15 @@ class BatchEditDialog(QDialog):
         self.edit_cxx_compiler = QLineEdit()
         form_build.addRow("C++ Compiler:", self.edit_cxx_compiler)
 
-        layout.addLayout(form_build)
+        details_layout.addLayout(form_build)
 
-        layout.addWidget(QLabel("Pre-Build Script (py_code_before_build):"))
+        details_layout.addWidget(QLabel("Pre-Build Script (py_code_before_build):"))
         self.edit_py_before = QPlainTextEdit()
-        layout.addWidget(self.edit_py_before)
+        details_layout.addWidget(self.edit_py_before)
 
-        layout.addWidget(QLabel("Post-Install Script (py_code_after_install):"))
+        details_layout.addWidget(QLabel("Post-Install Script (py_code_after_install):"))
         self.edit_py_after = QPlainTextEdit()
-        layout.addWidget(self.edit_py_after)
+        details_layout.addWidget(self.edit_py_after)
 
         buttons = QDialogButtonBox(
             QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel,
@@ -106,7 +112,10 @@ class BatchEditDialog(QDialog):
         )
         buttons.accepted.connect(self.accept)
         buttons.rejected.connect(self.reject)
-        layout.addWidget(buttons)
+        details_layout.addWidget(buttons)
+
+        splitter.addWidget(details_widget)
+        splitter.setStretchFactor(1, 3)
 
     # ------------------------------------------------------------------
     def onSelectAll(self):
@@ -141,7 +150,6 @@ class BatchEditDialog(QDialog):
         self.cmake_option_layout.insertWidget(self.cmake_option_layout.count() - 1, row_widget)
 
     def loadFromNode(self, node: NodeItem):
-        self.edit_node_name.setText(node.title())
         for opt in node.cmakeOptions():
             row_widget, line_edit = self.createOptionRow(opt)
             self.cmake_option_rows.append((row_widget, line_edit))
@@ -183,7 +191,6 @@ class BatchEditDialog(QDialog):
             QMessageBox.warning(self, "Warning", "No nodes selected.")
             return False
 
-        new_title = self.edit_node_name.text().strip()
         new_opts = []
         for (_, line_edit) in self.cmake_option_rows:
             val = line_edit.text().strip()
@@ -202,11 +209,6 @@ class BatchEditDialog(QDialog):
         )
 
         for node in selected:
-            if new_title:
-                if any(n.title() == new_title and n != node for n in node.scene().nodes):
-                    QMessageBox.warning(self, "Warning", f"Node name '{new_title}' already exists.")
-                    return False
-                node.updateTitle(new_title)
             node.setCMakeOptions(new_opts)
             node.setBuildSettings(bs)
             node.setCodeBeforeBuild(self.edit_py_before.toPlainText())
