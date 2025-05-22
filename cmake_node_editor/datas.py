@@ -47,6 +47,7 @@ class NodeCommands:
 @dataclass
 class ProjectCommands:
     start_node_id: int
+    end_node_id: int = -1
     node_commands_list: list[NodeCommands] = field(default_factory=list)
 
 @dataclass
