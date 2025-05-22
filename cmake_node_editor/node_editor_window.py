@@ -134,17 +134,17 @@ class NodeView(QGraphicsView):
                 parent.openNodePropertyDialog(item)
             elif hasattr(parent, 'runStage'):
                 if action == act_cfg_node:
-                    parent.runStage(stage="configure", start_node_name=item.title(), only_first=True)
+                    parent.runStage(stage="configure", start_node_id=item.id(), only_first=True)
                 elif action == act_build_node:
-                    parent.runStage(stage="build", start_node_name=item.title(), only_first=True)
+                    parent.runStage(stage="build", start_node_id=item.id(), only_first=True)
                 elif action == act_install_node:
-                    parent.runStage(stage="install", start_node_name=item.title(), only_first=True)
+                    parent.runStage(stage="install", start_node_id=item.id(), only_first=True)
                 elif action == act_cfg_from:
-                    parent.runStage(stage="configure", start_node_name=item.title())
+                    parent.runStage(stage="configure", start_node_id=item.id())
                 elif action == act_build_from:
-                    parent.runStage(stage="build", start_node_name=item.title())
+                    parent.runStage(stage="build", start_node_id=item.id())
                 elif action == act_install_from:
-                    parent.runStage(stage="install", start_node_name=item.title())
+                    parent.runStage(stage="install", start_node_id=item.id())
         else:
             act_new = menu.addAction("Create Node")
             action = menu.exec(global_pos)
@@ -353,13 +353,28 @@ class NodeEditorWindow(QMainWindow):
             self.scene.setLinkColor(link_color)
 
     def onPartialStage(self, stage: str):
-        names = [n.title() for n in self.scene.nodes]
-        if not names:
+        sorted_nodes = self.scene.topologicalSort()
+        if not sorted_nodes:
             QMessageBox.information(self, "Info", "No nodes available")
             return
-        name, ok = QInputDialog.getItem(self, f"Partial {stage.title()}", "Start from node:", names, 0, False)
-        if ok and name:
-            self.runStage(stage=stage, start_node_name=name)
+        range_str, ok = QInputDialog.getText(
+            self,
+            f"Partial {stage.title()}",
+            "Enter node ID range (start-end):"
+        )
+        if ok and range_str:
+            try:
+                parts = range_str.replace(",", "-").split("-")
+                if len(parts) == 2:
+                    s_id = int(parts[0].strip())
+                    e_id = int(parts[1].strip())
+                else:
+                    s_id = int(parts[0].strip())
+                    e_id = None
+            except Exception:
+                QMessageBox.warning(self, "Warning", "Invalid range format.")
+                return
+            self.runStage(stage=stage, start_node_id=s_id, end_node_id=e_id)
 
     # ----------------------------------------------------------------
     # Node operations
@@ -454,10 +469,23 @@ class NodeEditorWindow(QMainWindow):
     # ----------------------------------------------------------------
     # Asynchronous build flow
     # ----------------------------------------------------------------
-    def runStage(self, stage="build", start_node_name=None, force_first=False, only_first=False):
+    def runStage(self, stage="build", start_node_id=None, end_node_id=None, force_first=False, only_first=False):
         """
         Build ProjectCommands for the given stage (configure/build/install) and
         execute them in a worker process.
+
+        Parameters
+        ----------
+        stage : str
+            Build stage (configure/build/install/all)
+        start_node_id : int | None
+            ID of the first node to run. If None, start from the beginning.
+        end_node_id : int | None
+            ID of the last node to run. If None, run until the end.
+        force_first : bool
+            If True, ignore start_node_id and always begin from the first node.
+        only_first : bool
+            If True, run only the first node in the range.
         """
         self.build_output_text.clear()
 
@@ -471,22 +499,36 @@ class NodeEditorWindow(QMainWindow):
         start_index = 0
         if force_first:
             start_id = sorted_nodes[0].id() if sorted_nodes else -1
-        elif start_node_name:
+        elif start_node_id is not None:
             for idx, node_item in enumerate(sorted_nodes):
-                if node_item.title() == start_node_name:
-                    start_id = node_item.id()
+                if node_item.id() == start_node_id:
+                    start_id = start_node_id
                     start_index = idx
                     break
             if start_id is None:
-                QMessageBox.warning(self, "Warning", f"Node '{start_node_name}' not found, building from beginning.")
+                QMessageBox.warning(self, "Warning", f"Node ID {start_node_id} not found, building from beginning.")
+
+        end_index = len(sorted_nodes)
+        if end_node_id is not None:
+            for idx, node_item in enumerate(sorted_nodes):
+                if node_item.id() == end_node_id:
+                    end_index = idx + 1
+                    break
+            if end_index == len(sorted_nodes):
+                QMessageBox.warning(self, "Warning", f"End node ID {end_node_id} not found, building to the end.")
+
+        if end_index <= start_index:
+            QMessageBox.warning(self, "Warning", "Invalid node range specified.")
+            return
 
         project_commands = ProjectCommands(
             start_node_id=start_id if start_id is not None else -1,
+            end_node_id=sorted_nodes[end_index-1].id() if end_index > 0 else -1,
             node_commands_list=[]
         )
 
-        # For each node in sorted order, build NodeCommands & CommandData
-        for node_obj in sorted_nodes[start_index:]:
+        # For each node in sorted order within the specified range, build NodeCommands & CommandData
+        for node_obj in sorted_nodes[start_index:end_index]:
             node_cmd = NodeCommands(index=node_obj.id(), node_data=node_obj.nodeData(), cmd_list=[])
 
             bs = node_obj.buildSettings()
