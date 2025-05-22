@@ -399,7 +399,10 @@ class NodeEditorWindow(QMainWindow):
         if not sorted_nodes:
             QMessageBox.information(self, "Info", "No nodes available")
             return
-        dlg = NodeRangeDialog(sorted_nodes[0].id(), sorted_nodes[-1].id(), self)
+        ids = [n.id() for n in sorted_nodes]
+        min_id = min(ids)
+        max_id = max(ids)
+        dlg = NodeRangeDialog(min_id, max_id, self)
         if dlg.exec() == QDialog.DialogCode.Accepted:
             s_id, e_id = dlg.getValues()
             ids = [n.id() for n in sorted_nodes]
