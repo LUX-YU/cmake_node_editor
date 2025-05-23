@@ -111,6 +111,12 @@ class NodeView(QGraphicsView):
             super(NodeView, self).mouseReleaseEvent(event)
 
     def showContextMenu(self, pos):
+        # On some platforms the customContextMenuRequested signal may be emitted
+        # before the mouse release event. In that case ``_panning`` will remain
+        # True and the view stays in grab mode after closing the context menu.
+        # Reset the panning state here to ensure the cursor is restored.
+        self._panning = False
+        self.setCursor(Qt.CursorShape.ArrowCursor)
         self.openContextMenu(self.mapToGlobal(pos), pos)
 
     def openContextMenu(self, global_pos, view_pos):
