@@ -2,7 +2,7 @@ import os
 from PyQt6.QtCore import Qt
 from PyQt6.QtWidgets import (
     QDialog, QVBoxLayout, QHBoxLayout, QFormLayout, QScrollArea, QWidget,
-    QLabel, QLineEdit, QPushButton, QPlainTextEdit, QComboBox,
+    QLabel, QLineEdit, QPushButton, QPlainTextEdit, QComboBox, QCheckBox,
     QDialogButtonBox, QListWidget, QListWidgetItem, QMessageBox,
     QSplitter
 )
@@ -53,6 +53,8 @@ class BatchEditDialog(QDialog):
 
         self.cmake_option_layout = QVBoxLayout()
         btn_row = QHBoxLayout()
+        self.chk_cmake_opts = QCheckBox("Modify CMake Options")
+        btn_row.addWidget(self.chk_cmake_opts)
         self.btn_add_cmake_opt = QPushButton("Add CMake Option")
         self.btn_add_cmake_opt.clicked.connect(self.onAddCMakeOptionField)
         btn_row.addWidget(self.btn_add_cmake_opt)
@@ -66,43 +68,112 @@ class BatchEditDialog(QDialog):
         details_layout.addWidget(option_scroll)
 
         form_build = QFormLayout()
-        self.edit_build_dir = QLineEdit(os.path.join(os.getcwd(), "build"))
-        form_build.addRow("Build Directory:", self.edit_build_dir)
 
+        # Build Directory
+        self.chk_build_dir = QCheckBox()
+        self.edit_build_dir = QLineEdit(os.path.join(os.getcwd(), "build"))
+        w = QWidget()
+        h = QHBoxLayout(w)
+        h.setContentsMargins(0, 0, 0, 0)
+        h.addWidget(self.chk_build_dir)
+        h.addWidget(self.edit_build_dir)
+        form_build.addRow("Build Directory:", w)
+
+        # Build Type
+        self.chk_build_type = QCheckBox()
         self.combo_build_type = QComboBox()
         self.combo_build_type.addItems(["Debug", "Release", "RelWithDebInfo", "MinSizeRel"])
-        form_build.addRow("Build Type:", self.combo_build_type)
+        w = QWidget()
+        h = QHBoxLayout(w)
+        h.setContentsMargins(0, 0, 0, 0)
+        h.addWidget(self.chk_build_type)
+        h.addWidget(self.combo_build_type)
+        form_build.addRow("Build Type:", w)
 
+        # Install Directory
+        self.chk_install_dir = QCheckBox()
         self.edit_install_dir = QLineEdit(os.path.join(os.getcwd(), "install"))
-        form_build.addRow("Install Directory:", self.edit_install_dir)
+        w = QWidget()
+        h = QHBoxLayout(w)
+        h.setContentsMargins(0, 0, 0, 0)
+        h.addWidget(self.chk_install_dir)
+        h.addWidget(self.edit_install_dir)
+        form_build.addRow("Install Directory:", w)
 
+        # PREFIX_PATH
+        self.chk_prefix_path = QCheckBox()
         self.edit_prefix_path = QLineEdit(os.path.join(os.getcwd(), "install"))
-        form_build.addRow("PREFIX_PATH:", self.edit_prefix_path)
+        w = QWidget()
+        h = QHBoxLayout(w)
+        h.setContentsMargins(0, 0, 0, 0)
+        h.addWidget(self.chk_prefix_path)
+        h.addWidget(self.edit_prefix_path)
+        form_build.addRow("PREFIX_PATH:", w)
 
+        # Toolchain file
+        self.chk_toolchain = QCheckBox()
         self.edit_toolchain = QLineEdit()
-        form_build.addRow("Toolchain File:", self.edit_toolchain)
+        w = QWidget()
+        h = QHBoxLayout(w)
+        h.setContentsMargins(0, 0, 0, 0)
+        h.addWidget(self.chk_toolchain)
+        h.addWidget(self.edit_toolchain)
+        form_build.addRow("Toolchain File:", w)
 
+        # Generator
+        self.chk_generator = QCheckBox()
         self.combo_generator = QComboBox()
         self.combo_generator.addItem("Default (not specified)")
         self.combo_generator.addItems([
             "Visual Studio 17 2022", "Visual Studio 16 2019",
             "Ninja", "Unix Makefiles",
         ])
-        form_build.addRow("CMake Generator:", self.combo_generator)
+        w = QWidget()
+        h = QHBoxLayout(w)
+        h.setContentsMargins(0, 0, 0, 0)
+        h.addWidget(self.chk_generator)
+        h.addWidget(self.combo_generator)
+        form_build.addRow("CMake Generator:", w)
 
+        # C compiler
+        self.chk_c_compiler = QCheckBox()
         self.edit_c_compiler = QLineEdit()
-        form_build.addRow("C Compiler:", self.edit_c_compiler)
+        w = QWidget()
+        h = QHBoxLayout(w)
+        h.setContentsMargins(0, 0, 0, 0)
+        h.addWidget(self.chk_c_compiler)
+        h.addWidget(self.edit_c_compiler)
+        form_build.addRow("C Compiler:", w)
 
+        # C++ compiler
+        self.chk_cxx_compiler = QCheckBox()
         self.edit_cxx_compiler = QLineEdit()
-        form_build.addRow("C++ Compiler:", self.edit_cxx_compiler)
+        w = QWidget()
+        h = QHBoxLayout(w)
+        h.setContentsMargins(0, 0, 0, 0)
+        h.addWidget(self.chk_cxx_compiler)
+        h.addWidget(self.edit_cxx_compiler)
+        form_build.addRow("C++ Compiler:", w)
 
         details_layout.addLayout(form_build)
 
-        details_layout.addWidget(QLabel("Pre-Build Script (py_code_before_build):"))
+        self.chk_py_before = QCheckBox()
+        lbl_before = QLabel("Pre-Build Script (py_code_before_build):")
+        h = QHBoxLayout()
+        h.addWidget(self.chk_py_before)
+        h.addWidget(lbl_before)
+        h.addStretch()
+        details_layout.addLayout(h)
         self.edit_py_before = QPlainTextEdit()
         details_layout.addWidget(self.edit_py_before)
 
-        details_layout.addWidget(QLabel("Post-Install Script (py_code_after_install):"))
+        self.chk_py_after = QCheckBox()
+        lbl_after = QLabel("Post-Install Script (py_code_after_install):")
+        h = QHBoxLayout()
+        h.addWidget(self.chk_py_after)
+        h.addWidget(lbl_after)
+        h.addStretch()
+        details_layout.addLayout(h)
         self.edit_py_after = QPlainTextEdit()
         details_layout.addWidget(self.edit_py_after)
 
@@ -192,25 +263,46 @@ class BatchEditDialog(QDialog):
             return False
 
         new_opts = []
-        for (_, line_edit) in self.cmake_option_rows:
-            val = line_edit.text().strip()
-            if val:
-                new_opts.append(val)
-        generator = "" if self.combo_generator.currentIndex() == 0 else self.combo_generator.currentText()
-        bs = BuildSettings(
-            build_dir=self.edit_build_dir.text().strip(),
-            install_dir=self.edit_install_dir.text().strip(),
-            build_type=self.combo_build_type.currentText(),
-            prefix_path=self.edit_prefix_path.text().strip(),
-            toolchain_file=self.edit_toolchain.text().strip(),
-            generator=generator,
-            c_compiler=self.edit_c_compiler.text().strip(),
-            cxx_compiler=self.edit_cxx_compiler.text().strip(),
-        )
+        if self.chk_cmake_opts.isChecked():
+            for (_, line_edit) in self.cmake_option_rows:
+                val = line_edit.text().strip()
+                if val:
+                    new_opts.append(val)
 
         for node in selected:
-            node.setCMakeOptions(new_opts)
+            # Update CMake options
+            if self.chk_cmake_opts.isChecked() and new_opts:
+                node.setCMakeOptions(node.cmakeOptions() + new_opts)
+
+            bs = node.buildSettings()
+            # Build directory
+            if self.chk_build_dir.isChecked():
+                bs.build_dir = self.edit_build_dir.text().strip()
+            # Install directory
+            if self.chk_install_dir.isChecked():
+                bs.install_dir = self.edit_install_dir.text().strip()
+            # Build type
+            if self.chk_build_type.isChecked():
+                bs.build_type = self.combo_build_type.currentText()
+            # PREFIX_PATH
+            if self.chk_prefix_path.isChecked():
+                bs.prefix_path = self.edit_prefix_path.text().strip()
+            # Toolchain
+            if self.chk_toolchain.isChecked():
+                bs.toolchain_file = self.edit_toolchain.text().strip()
+            # Generator
+            if self.chk_generator.isChecked():
+                bs.generator = "" if self.combo_generator.currentIndex() == 0 else self.combo_generator.currentText()
+            # C compiler
+            if self.chk_c_compiler.isChecked():
+                bs.c_compiler = self.edit_c_compiler.text().strip()
+            # C++ compiler
+            if self.chk_cxx_compiler.isChecked():
+                bs.cxx_compiler = self.edit_cxx_compiler.text().strip()
             node.setBuildSettings(bs)
-            node.setCodeBeforeBuild(self.edit_py_before.toPlainText())
-            node.setCodeAfterInstall(self.edit_py_after.toPlainText())
+
+            if self.chk_py_before.isChecked():
+                node.setCodeBeforeBuild(self.edit_py_before.toPlainText())
+            if self.chk_py_after.isChecked():
+                node.setCodeAfterInstall(self.edit_py_after.toPlainText())
         return True
