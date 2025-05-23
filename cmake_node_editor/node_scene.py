@@ -364,6 +364,9 @@ class NodeScene(QGraphicsScene):
         self.topology_changed_callback = None
         self.link_color = QColor(Qt.GlobalColor.black)
         self.grid_opacity = 0.5
+        # Starting position for newly created nodes. Each new node will be
+        # placed slightly offset from the previous one so they don't overlap.
+        self.next_node_pos = QPointF(100, 100)
 
     def drawBackground(self, painter, rect):
         """Draw a simple grid as the scene background."""
@@ -444,9 +447,12 @@ class NodeScene(QGraphicsScene):
                             data=None)
         # Override build settings
         new_node.setBuildSettings(build_settings)
-        new_node.setPos(100, 100)
-        new_node.nodeData().pos_x = 100
-        new_node.nodeData().pos_y = 100
+        # Place the node at the next available position and update for the next
+        # node so consecutive nodes don't overlap.
+        new_node.setPos(self.next_node_pos)
+        new_node.nodeData().pos_x = self.next_node_pos.x()
+        new_node.nodeData().pos_y = self.next_node_pos.y()
+        self.next_node_pos += QPointF(30, 30)
         self.addItem(new_node)
         self.nodes.append(new_node)
         self.notifyTopologyChanged()
