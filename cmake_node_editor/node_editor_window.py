@@ -131,6 +131,7 @@ class NodeView(QGraphicsView):
             act_cfg_from = menu.addAction("Configure From This")
             act_build_from = menu.addAction("Build From This")
             act_install_from = menu.addAction("Install From This")
+            act_gen_to = menu.addAction("Generate To This")
             menu.addSeparator()
             act_open_dir = menu.addAction("Open Project Directory")
             menu.addSeparator()
@@ -160,6 +161,11 @@ class NodeView(QGraphicsView):
                     parent.runStage(stage="build", start_node_id=item.id())
                 elif action == act_install_from:
                     parent.runStage(stage="install", start_node_id=item.id())
+                elif action == act_gen_to:
+                    if hasattr(parent, 'runGenerate'):
+                        parent.runGenerate(end_node_id=item.id())
+                    else:
+                        parent.runStage(stage="all", end_node_id=item.id())
         else:
             act_new = menu.addAction("Create Node")
             action = menu.exec(global_pos)
@@ -330,6 +336,8 @@ class NodeEditorWindow(QMainWindow):
         act_full_build.triggered.connect(lambda: self.runStage(stage="build", force_first=True))
         act_full_install = project_menu.addAction("Full Install")
         act_full_install.triggered.connect(lambda: self.runStage(stage="install", force_first=True))
+        act_full_generate = project_menu.addAction("Full Generate")
+        act_full_generate.triggered.connect(lambda: self.runGenerate(force_first=True))
         project_menu.addSeparator()
         act_part_cfg = project_menu.addAction("Partial Configure")
         act_part_cfg.triggered.connect(lambda: self.onPartialStage("configure"))
@@ -337,6 +345,8 @@ class NodeEditorWindow(QMainWindow):
         act_part_build.triggered.connect(lambda: self.onPartialStage("build"))
         act_part_install = project_menu.addAction("Partial Install")
         act_part_install.triggered.connect(lambda: self.onPartialStage("install"))
+        act_part_generate = project_menu.addAction("Partial Generate")
+        act_part_generate.triggered.connect(self.onPartialGenerate)
 
         edit_menu = menubar.addMenu("Edit")
         self.act_add_node = edit_menu.addAction("Add Node")
@@ -498,6 +508,26 @@ class NodeEditorWindow(QMainWindow):
         if dlg.exec() == dlg.DialogCode.Accepted:
             if dlg.applyToNodes():
                 self.updateTopologyView()
+
+    def runGenerate(
+        self,
+        start_node_id: int | None = None,
+        end_node_id: int | None = None,
+        force_first: bool = False,
+        only_first: bool = False,
+    ) -> None:
+        """Convenience wrapper to run configure, build and install."""
+        self.runStage(
+            stage="all",
+            start_node_id=start_node_id,
+            end_node_id=end_node_id,
+            force_first=force_first,
+            only_first=only_first,
+        )
+
+    def onPartialGenerate(self) -> None:
+        """Prompt for a node range and generate within it."""
+        self.onPartialStage("all")
 
     # ----------------------------------------------------------------
     # Topology view
