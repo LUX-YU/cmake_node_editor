@@ -222,7 +222,4 @@ def worker_main(task_queue: Queue, result_queue: Queue):
 
     result_queue.put(SubprocessLogData(index=-1, log="[Worker] Worker process finished."))
 
-def do_execute_command(cmdData: CommandData, result_queue: Queue) -> bool:
-    """Compatibility wrapper using :class:`CommandExecutor`."""
-    executor = CommandExecutor(result_queue)
-    return executor.execute(cmdData)
+

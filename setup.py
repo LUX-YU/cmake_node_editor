@@ -4,7 +4,7 @@ import setuptools
 setuptools.setup(
     name="cmake_node_editor",
     version="0.1.0",
-    packages=["cmake_node_editor"],
+    packages=setuptools.find_packages(),
     install_requires=["PyQt6"],
     entry_points={
         "console_scripts": [

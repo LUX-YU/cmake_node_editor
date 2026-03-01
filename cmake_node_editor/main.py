@@ -3,10 +3,13 @@
 import sys
 import multiprocessing
 from PyQt6.QtWidgets import QApplication
-from .node_editor_window import NodeEditorWindow
+from .node_editor_window_new import NodeEditorWindow
 
 def main():
-    multiprocessing.set_start_method("spawn")
+    try:
+        multiprocessing.set_start_method("spawn")
+    except RuntimeError:
+        pass  # already set
 
     app = QApplication(sys.argv)
     window = NodeEditorWindow()
