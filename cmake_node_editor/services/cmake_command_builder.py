@@ -2,8 +2,13 @@
 CMake command builder service.
 
 Knows how to produce :class:`ProjectCommands` (configure / build / install
-command sequences) from a topologically sorted list of :class:`NodeItem`.
-This was extracted from the 130-line ``NodeEditorWindow.runStage`` method.
+command sequences) from a topologically sorted list of node-like objects.
+
+Any object that exposes ``id()``, ``title()``, ``projectPath()``,
+``buildSettings()``, ``cmakeOptions()``, ``codeBeforeBuild()``,
+``codeAfterInstall()`` and ``nodeData()`` is accepted (duck typing).
+This allows both :class:`NodeItem` (GUI) and :class:`NodeProxy` (CLI) to
+be used interchangeably.
 """
 
 from __future__ import annotations
@@ -12,7 +17,49 @@ import multiprocessing
 import os
 import re
 
-from ..models.data_classes import ProjectCommands, NodeCommands, CommandData
+from ..models.data_classes import (
+    ProjectCommands, NodeCommands, CommandData, NodeData, BuildSettings,
+)
+
+
+def _sanitize_name(name: str) -> str:
+    """Remove characters unsafe for filesystem paths."""
+    return re.sub(r'[^\w\-.]', '_', name)
+
+
+class NodeProxy:
+    """
+    Lightweight adapter that wraps a :class:`NodeData` dataclass and
+    exposes the same read-only interface that :func:`build_project_commands`
+    expects.  Used by the headless CLI builder.
+    """
+
+    def __init__(self, data: NodeData):
+        self._data = data
+
+    def id(self) -> int:
+        return self._data.node_id
+
+    def title(self) -> str:
+        return self._data.title
+
+    def projectPath(self) -> str:
+        return self._data.project_path
+
+    def buildSettings(self) -> BuildSettings:
+        return self._data.build_settings
+
+    def cmakeOptions(self) -> list[str]:
+        return self._data.cmake_options
+
+    def codeBeforeBuild(self) -> str:
+        return self._data.code_before_build
+
+    def codeAfterInstall(self) -> str:
+        return self._data.code_after_install
+
+    def nodeData(self) -> NodeData:
+        return self._data
 
 
 def _sanitize_name(name: str) -> str:
@@ -76,6 +123,10 @@ def build_project_commands(
         c_compiler = bs.c_compiler
         cxx_compiler = bs.cxx_compiler
 
+        project_name = node_obj.title()
+        safe_project_name = _sanitize_name(project_name)
+        project_dir = node_obj.projectPath()
+
         # Pre-configure script
         if stage in ("configure", "all") and node_obj.codeBeforeBuild().strip():
             node_cmd.cmd_list.append(CommandData(
@@ -84,9 +135,6 @@ def build_project_commands(
                 display_name=f"Pre-Configure Script {project_name}",
             ))
 
-        project_name = node_obj.title()
-        safe_project_name = _sanitize_name(project_name)
-        project_dir = node_obj.projectPath()
         if not project_dir or not os.path.isdir(project_dir):
             return f"{project_name} has invalid project path."
 

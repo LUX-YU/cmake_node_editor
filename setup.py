@@ -8,7 +8,8 @@ setuptools.setup(
     install_requires=["PyQt6"],
     entry_points={
         "console_scripts": [
-            "cmake-node-editor = cmake_node_editor.main:main",  
+            "cmake-node-editor = cmake_node_editor.main:main",
+            "cmake-node-cli = cmake_node_editor.cli:main",
         ],
     },
 )
