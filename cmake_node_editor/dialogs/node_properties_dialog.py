@@ -2,8 +2,6 @@
 Node Properties Dialog — uses shared ``BuildSettingsForm`` and ``CMakeOptionsEditor``.
 """
 
-import os
-
 from PyQt6.QtWidgets import (
     QDialog, QVBoxLayout, QHBoxLayout, QFormLayout, QWidget,
     QLabel, QLineEdit, QPushButton, QPlainTextEdit,

@@ -3,7 +3,7 @@
 import sys
 import multiprocessing
 from PyQt6.QtWidgets import QApplication
-from .node_editor_window_new import NodeEditorWindow
+from .node_editor_window import NodeEditorWindow
 
 def main():
     try:

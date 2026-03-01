@@ -3,16 +3,15 @@ Node Creation Dialog — uses shared ``CMakeOptionsEditor``.
 """
 
 import os
-from dataclasses import fields
 
-from PyQt6.QtCore import Qt
 from PyQt6.QtWidgets import (
-    QDialog, QLabel, QLineEdit, QPushButton, QVBoxLayout, QHBoxLayout,
-    QFormLayout, QWidget, QFileDialog, QMessageBox, QDialogButtonBox,
-    QScrollArea, QCheckBox, QComboBox,
+    QDialog, QLineEdit, QPushButton, QVBoxLayout, QHBoxLayout,
+    QFormLayout, QFileDialog, QMessageBox, QDialogButtonBox,
+    QCheckBox, QComboBox, QGroupBox,
 )
 
-from ..models.data_classes import NodeData
+from ..models.data_classes import BuildSettings
+from ..constants import DEFAULT_BUILD_DIR, DEFAULT_INSTALL_DIR, DEFAULT_BUILD_TYPE
 from .widgets.cmake_options_editor import CMakeOptionsEditor
 
 
@@ -20,44 +19,80 @@ class NodeCreationDialog(QDialog):
     """
     Dialog that lets the user create a new node with optional inheritance
     from an existing node.
+
+    Inheritance is fully resolved inside :meth:`getNodeData` so that
+    callers receive ready-to-use values.
     """
+
+    # Node-level attributes available for copying
+    _NODE_ATTRS = [
+        ("cmake_options", "CMake Options"),
+        ("code_before_build", "Pre-Configure Script"),
+        ("code_after_install", "Post-Install Script"),
+    ]
+
+    # Individual BuildSettings fields
+    _BS_ATTRS = [
+        ("build_dir", "Build Directory"),
+        ("install_dir", "Install Directory"),
+        ("build_type", "Build Type"),
+        ("prefix_path", "PREFIX_PATH"),
+        ("toolchain_file", "Toolchain File"),
+        ("generator", "Generator"),
+        ("c_compiler", "C Compiler"),
+        ("cxx_compiler", "C++ Compiler"),
+    ]
 
     def __init__(self, parent=None, existing_nodes=None):
         super().__init__(parent)
         self.existing_nodes = existing_nodes if existing_nodes else []
         self.setWindowTitle("Create New Node")
-        self.resize(600, 500)
+        self.resize(600, 600)
 
-        # Project path (first — auto-fills node name)
+        # -- Project path (auto-fills node name) --
         self.project_path_edit = QLineEdit()
         self.project_path_edit.textChanged.connect(self._onProjectPathChanged)
         self.btn_browse_project = QPushButton("Browse Folder")
         self.btn_browse_project.clicked.connect(self._onBrowseProject)
 
-        # Node name
+        # -- Node name --
         self.node_name_edit = QLineEdit()
         self._name_manually_set = False
         self.node_name_edit.textEdited.connect(self._onNameEdited)
 
-        # Inheritance
+        # -- Inherit From --
         self.inherit_combo = QComboBox()
         self.inherit_combo.addItem("None")
         for n in self.existing_nodes:
             self.inherit_combo.addItem(n.title())
+        self.inherit_combo.currentIndexChanged.connect(self._onInheritChanged)
 
-        # Dynamically create checkboxes for inheritable attributes
-        self.attr_checkboxes: list[QCheckBox] = []
-        skip_fields = {"node_id", "title", "pos_x", "pos_y"}
-        for f in fields(NodeData):
-            if f.name in skip_fields:
-                continue
-            cb = QCheckBox(f.name)
-            self.attr_checkboxes.append(cb)
+        # -- Copy Attributes (disabled until a source node is selected) --
+        self._node_cbs: dict[str, QCheckBox] = {}
+        self._bs_cbs: dict[str, QCheckBox] = {}
 
-        # CMake options (shared widget)
+        self.copy_group = QGroupBox("Copy Attributes")
+        copy_layout = QVBoxLayout(self.copy_group)
+
+        for key, label in self._NODE_ATTRS:
+            cb = QCheckBox(label)
+            self._node_cbs[key] = cb
+            copy_layout.addWidget(cb)
+
+        bs_group = QGroupBox("Build Settings")
+        bs_layout = QVBoxLayout(bs_group)
+        for key, label in self._BS_ATTRS:
+            cb = QCheckBox(label)
+            self._bs_cbs[key] = cb
+            bs_layout.addWidget(cb)
+        copy_layout.addWidget(bs_group)
+
+        self.copy_group.setEnabled(False)
+
+        # -- CMake options --
         self.cmake_options_editor = CMakeOptionsEditor()
 
-        # Build the form — Project Path first
+        # -- Form layout --
         form = QFormLayout()
 
         proj_path_layout = QHBoxLayout()
@@ -67,15 +102,10 @@ class NodeCreationDialog(QDialog):
 
         form.addRow("Node Name:", self.node_name_edit)
         form.addRow("Inherit From:", self.inherit_combo)
-
-        inherit_layout = QVBoxLayout()
-        for cb in self.attr_checkboxes:
-            inherit_layout.addWidget(cb)
-        form.addRow("Copy Attributes:", inherit_layout)
-
+        form.addRow(self.copy_group)
         form.addRow("CMake Options:", self.cmake_options_editor)
 
-        # OK / Cancel
+        # -- OK / Cancel --
         self.buttons = QDialogButtonBox(
             QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel,
             parent=self,
@@ -88,6 +118,13 @@ class NodeCreationDialog(QDialog):
         main_layout.addWidget(self.buttons)
 
     # ------------------------------------------------------------------
+    # Slots
+    # ------------------------------------------------------------------
+
+    def _onInheritChanged(self, index: int):
+        """Enable / disable the copy-attributes group."""
+        self.copy_group.setEnabled(index > 0)
+
     def _onProjectPathChanged(self, text: str):
         """Auto-fill node name from the last folder component."""
         if self._name_manually_set:
@@ -108,34 +145,69 @@ class NodeCreationDialog(QDialog):
             self.project_path_edit.setText(folder)
 
     def _onAccept(self):
-        # Validate CMake options format
         opt_err = self.cmake_options_editor.validate()
         if opt_err:
             QMessageBox.critical(self, "Error", opt_err)
             return
 
         proj_path = self.project_path_edit.text().strip()
-        inherit_proj = False
-        if self.inherit_combo.currentIndex() > 0:
-            for cb in self.attr_checkboxes:
-                if cb.text() == "project_path" and cb.isChecked():
-                    inherit_proj = True
-                    break
-        if not inherit_proj:
-            if not os.path.isdir(proj_path):
-                QMessageBox.critical(self, "Error", "Please select a valid project folder.")
-                return
-            if not os.path.exists(os.path.join(proj_path, "CMakeLists.txt")):
-                QMessageBox.critical(self, "Error", "No CMakeLists.txt found in that folder.")
-                return
+        if not os.path.isdir(proj_path):
+            QMessageBox.critical(self, "Error", "Please select a valid project folder.")
+            return
+        if not os.path.exists(os.path.join(proj_path, "CMakeLists.txt")):
+            QMessageBox.critical(self, "Error", "No CMakeLists.txt found in that folder.")
+            return
         self.accept()
 
     # ------------------------------------------------------------------
-    def getNodeData(self) -> tuple[str, list[str], str, int, list[str]]:
-        """Return ``(node_name, cmake_options, project_path, inherit_index, inherit_attrs)``."""
+    # Public API
+    # ------------------------------------------------------------------
+
+    def _base_node(self):
+        """Return the selected source node, or *None*."""
+        idx = self.inherit_combo.currentIndex() - 1
+        if 0 <= idx < len(self.existing_nodes):
+            return self.existing_nodes[idx]
+        return None
+
+    def getNodeData(
+        self,
+    ) -> tuple[str, list[str], str, BuildSettings | None, str, str]:
+        """Return ``(node_name, cmake_options, project_path, build_settings,
+        code_before, code_after)``.
+
+        All inheritance is resolved internally — callers receive ready-to-use
+        values.
+        """
         node_name = self.node_name_edit.text().strip()
         cmake_opts = self.cmake_options_editor.get_options()
         proj_path = self.project_path_edit.text().strip()
-        inherit_index = self.inherit_combo.currentIndex() - 1
-        attrs = [cb.text() for cb in self.attr_checkboxes if cb.isChecked()]
-        return node_name, cmake_opts, proj_path, inherit_index, attrs
+        code_before = ""
+        code_after = ""
+        bs: BuildSettings | None = None
+
+        base = self._base_node()
+        if base:
+            if self._node_cbs["cmake_options"].isChecked():
+                cmake_opts = list(base.cmakeOptions())
+            if self._node_cbs["code_before_build"].isChecked():
+                code_before = base.codeBeforeBuild()
+            if self._node_cbs["code_after_install"].isChecked():
+                code_after = base.codeAfterInstall()
+
+            # Build settings — merge only checked fields over defaults
+            checked_bs = [k for k, cb in self._bs_cbs.items() if cb.isChecked()]
+            if checked_bs:
+                src = base.buildSettings()
+                bs = BuildSettings(
+                    build_dir=src.build_dir if "build_dir" in checked_bs else DEFAULT_BUILD_DIR,
+                    install_dir=src.install_dir if "install_dir" in checked_bs else DEFAULT_INSTALL_DIR,
+                    build_type=src.build_type if "build_type" in checked_bs else DEFAULT_BUILD_TYPE,
+                    prefix_path=src.prefix_path if "prefix_path" in checked_bs else DEFAULT_INSTALL_DIR,
+                    toolchain_file=src.toolchain_file if "toolchain_file" in checked_bs else "",
+                    generator=src.generator if "generator" in checked_bs else "",
+                    c_compiler=src.c_compiler if "c_compiler" in checked_bs else "",
+                    cxx_compiler=src.cxx_compiler if "cxx_compiler" in checked_bs else "",
+                )
+
+        return node_name, cmake_opts, proj_path, bs, code_before, code_after

@@ -17,8 +17,6 @@ PIN_SIZE = 10
 # ---------------------------------------------------------------------------
 GRID_SIZE = 20
 DEFAULT_GRID_OPACITY = 0.5
-DEFAULT_SCENE_WIDTH = 1200
-DEFAULT_SCENE_HEIGHT = 800
 NODE_AUTO_OFFSET_X = 30
 NODE_AUTO_OFFSET_Y = 30
 NODE_INITIAL_X = 100
@@ -39,8 +37,8 @@ WINDOW_TITLE = "QNode Editor for cmake projects"
 # ---------------------------------------------------------------------------
 # CMake defaults
 # ---------------------------------------------------------------------------
-DEFAULT_BUILD_DIR = "build"
-DEFAULT_INSTALL_DIR = "install"
+DEFAULT_BUILD_DIR = "build/{build_type}"
+DEFAULT_INSTALL_DIR = "install/{build_type}"
 DEFAULT_BUILD_TYPE = "Debug"
 
 BUILD_TYPES = ["Debug", "Release", "RelWithDebInfo", "MinSizeRel"]

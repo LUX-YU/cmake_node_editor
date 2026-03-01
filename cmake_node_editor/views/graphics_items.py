@@ -9,7 +9,6 @@ have been extracted here for better separation of concerns.
 from __future__ import annotations
 
 import math
-import os
 
 from PyQt6.QtCore import Qt, QRectF, QPointF
 from PyQt6.QtGui import QBrush, QPen, QPainterPath, QColor, QPolygonF
@@ -116,6 +115,12 @@ class Edge(QGraphicsPathItem):
         self.updateColor()
 
     ARROW_SIZE = 8  # pixels
+
+    def boundingRect(self):
+        """Expand the default path bounding rect to include the arrowhead."""
+        base = super().boundingRect()
+        margin = self.ARROW_SIZE + self.pen().widthF()
+        return base.adjusted(-margin, -margin, margin, margin)
 
     def paint(self, painter, option, widget=None):
         painter.setPen(self.pen())

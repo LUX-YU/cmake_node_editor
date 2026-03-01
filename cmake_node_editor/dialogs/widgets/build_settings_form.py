@@ -7,8 +7,6 @@ convenience methods to load from / export to a ``BuildSettings`` instance.
 
 from __future__ import annotations
 
-import os
-
 from PyQt6.QtWidgets import (
     QWidget, QFormLayout, QLineEdit, QComboBox, QPlainTextEdit, QLabel,
 )

@@ -13,7 +13,7 @@ from typing import TYPE_CHECKING
 
 from PyQt6.QtCore import QPointF
 
-from ..models.data_classes import NodeData, EdgeData, BuildSettings
+from ..models.data_classes import BuildSettings
 from ..constants import (
     DEFAULT_BUILD_DIR, DEFAULT_INSTALL_DIR, DEFAULT_BUILD_TYPE,
     NODE_AUTO_OFFSET_X, NODE_AUTO_OFFSET_Y,

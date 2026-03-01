@@ -10,11 +10,11 @@ background grid drawing, link color).
 from __future__ import annotations
 
 from PyQt6.QtCore import Qt, QPointF, QLineF
-from PyQt6.QtGui import QBrush, QPen, QColor
+from PyQt6.QtGui import QPen, QColor
 from PyQt6.QtWidgets import QGraphicsScene
 
 from ..views.graphics_items import NodeItem, Edge, Pin
-from ..models.data_classes import NodeData, BuildSettings
+from ..models.data_classes import BuildSettings
 from ..scene.graph_model import GraphModel
 from ..scene.serialization import save_project, load_project
 from ..constants import (
@@ -125,6 +125,7 @@ class NodeScene(QGraphicsScene):
         cmake_options: list[str],
         project_path: str,
         build_settings: BuildSettings | None = None,
+        pos: QPointF | None = None,
     ) -> NodeItem:
         node_id = self._model.next_id()
         if build_settings is None:
@@ -138,7 +139,8 @@ class NodeScene(QGraphicsScene):
         )
         new_node.setBuildSettings(build_settings)
 
-        pos = self._model.advance_node_pos()
+        if pos is None:
+            pos = self._model.advance_node_pos()
         new_node.setPos(pos)
         new_node.nodeData().pos_x = pos.x()
         new_node.nodeData().pos_y = pos.y()

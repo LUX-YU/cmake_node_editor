@@ -85,17 +85,19 @@ def project_info(filepath: str) -> str:
     lines.append("-" * 60)
     for i, nd in enumerate(sorted_nodes):
         bs = nd.build_settings
+        resolved_install = bs.install_dir.format(build_type=bs.build_type)
+        resolved_prefix = bs.prefix_path.format(build_type=bs.build_type) if bs.prefix_path else ""
         lines.append(f"  {i+1}. [{nd.node_id}] {nd.title}")
         lines.append(f"       project_path  : {nd.project_path}")
         lines.append(f"       build_dir     : {bs.build_dir}")
-        lines.append(f"       install_dir   : {bs.install_dir}")
+        lines.append(f"       install_dir   : {bs.install_dir}  ->  {resolved_install}")
         lines.append(f"       build_type    : {bs.build_type}")
         if bs.generator:
             lines.append(f"       generator     : {bs.generator}")
         if bs.toolchain_file:
             lines.append(f"       toolchain     : {bs.toolchain_file}")
         if bs.prefix_path:
-            lines.append(f"       prefix_path   : {bs.prefix_path}")
+            lines.append(f"       prefix_path   : {bs.prefix_path}  ->  {resolved_prefix}")
         if bs.c_compiler:
             lines.append(f"       c_compiler    : {bs.c_compiler}")
         if bs.cxx_compiler:

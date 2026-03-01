@@ -142,8 +142,11 @@ def build_project_commands(
         if not os.path.exists(cmake_lists_file):
             return f"CMakeLists.txt not found in {project_dir}."
 
-        node_build_dir = os.path.join(build_root, safe_project_name, build_type)
-        node_install_dir = os.path.join(install_root, build_type)
+        node_build_dir = os.path.join(
+            build_root.format(build_type=build_type), safe_project_name,
+        )
+        node_install_dir = install_root.format(build_type=build_type)
+        node_prefix_path = prefix_path.format(build_type=build_type) if prefix_path else ""
         os.makedirs(node_build_dir, exist_ok=True)
 
         # Configure command
@@ -162,8 +165,10 @@ def build_project_commands(
             cmd_configure.append(f"-DCMAKE_CXX_COMPILER:FILEPATH={cxx_compiler}")
         if toolchain_path:
             cmd_configure.append(f"-DCMAKE_TOOLCHAIN_FILE={toolchain_path}")
-        if prefix_path:
-            cmd_configure.append(f"-DCMAKE_PREFIX_PATH={prefix_path}")
+        if node_prefix_path:
+            cmd_configure.append(f"-DCMAKE_PREFIX_PATH={node_prefix_path}")
+        # NOTE: {build_type} in build_dir / install_dir / prefix_path is
+        #       resolved above via str.format(build_type=...).
         for opt in node_obj.cmakeOptions():
             cmd_configure.append(opt)
 
