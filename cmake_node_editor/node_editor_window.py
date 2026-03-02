@@ -43,7 +43,6 @@ class NodeEditorWindow(QMainWindow):
 
     def __init__(self):
         super().__init__()
-        self.setWindowTitle(WINDOW_TITLE)
         self.resize(WINDOW_WIDTH, WINDOW_HEIGHT)
 
         # Central mediator — owns scene, undo_stack, worker, settings
@@ -90,6 +89,9 @@ class NodeEditorWindow(QMainWindow):
 
         # Restore persisted settings
         self._loadSettings()
+
+        # Set initial title (reflects auto-opened project if any)
+        self._updateTitle()
 
     # ----------------------------------------------------------------
     # Dock widgets
@@ -272,6 +274,18 @@ class NodeEditorWindow(QMainWindow):
         super().closeEvent(event)
 
     # ----------------------------------------------------------------
+    # Title
+    # ----------------------------------------------------------------
+
+    def _updateTitle(self):
+        """Set the window title, appending the current file name if any."""
+        if self.ctx.current_file:
+            name = os.path.basename(self.ctx.current_file)
+            self.setWindowTitle(f"{WINDOW_TITLE} — {name}")
+        else:
+            self.setWindowTitle(WINDOW_TITLE)
+
+    # ----------------------------------------------------------------
     # File actions
     # ----------------------------------------------------------------
 
@@ -282,12 +296,14 @@ class NodeEditorWindow(QMainWindow):
             if err:
                 QMessageBox.critical(self, "Error", err)
             else:
-                self.statusBar().showMessage("Saved.", 2000)
+                name = os.path.basename(self.ctx.current_file)
+                self.statusBar().showMessage(f"Saved to {name}", 3000)
         else:
             self._onSaveProject()
 
     def _onSaveProject(self):
-        filepath, _ = QFileDialog.getSaveFileName(self, "Save Project", ".", "JSON Files (*.json)")
+        default_dir = os.path.dirname(self.ctx.current_file) if self.ctx.current_file else "."
+        filepath, _ = QFileDialog.getSaveFileName(self, "Save Project", default_dir, "JSON Files (*.json)")
         if not filepath:
             return
         err = self.scene.saveProjectToJson(filepath, None)
@@ -295,15 +311,18 @@ class NodeEditorWindow(QMainWindow):
             QMessageBox.critical(self, "Error", err)
         else:
             self.ctx.current_file = filepath
+            self._updateTitle()
             QMessageBox.information(self, "Info", "Project has been saved!")
 
     def _onLoadProject(self):
-        filepath, _ = QFileDialog.getOpenFileName(self, "Load Project", ".", "JSON Files (*.json)")
+        default_dir = os.path.dirname(self.ctx.current_file) if self.ctx.current_file else "."
+        filepath, _ = QFileDialog.getOpenFileName(self, "Load Project", default_dir, "JSON Files (*.json)")
         if not filepath:
             return
         self.scene.loadProjectFromJson(filepath)
         self.ctx.current_file = filepath
         self._undo_stack.clear()
+        self._updateTitle()
         QMessageBox.information(self, "Info", "Project loaded!")
         self.updateTopologyView()
 
@@ -340,11 +359,16 @@ class NodeEditorWindow(QMainWindow):
         # Auto-open last project
         last = s.value("last_project", "")
         if last and os.path.isfile(last):
-            self.scene.loadProjectFromJson(last)
-            self.ctx.current_file = last
-            self._undo_stack.clear()
-            self.updateTopologyView()
-            self.statusBar().showMessage(f"Restored: {last}", 3000)
+            try:
+                self.scene.loadProjectFromJson(last)
+                self.ctx.current_file = last
+                self._undo_stack.clear()
+                self.updateTopologyView()
+                self.statusBar().showMessage(f"Restored: {last}", 5000)
+            except Exception as exc:
+                self.statusBar().showMessage(
+                    f"Failed to restore last project: {exc}", 5000
+                )
 
     def _saveSettings(self):
         s = self.ctx.settings
