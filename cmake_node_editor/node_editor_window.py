@@ -370,7 +370,7 @@ class NodeEditorWindow(QMainWindow):
             self._pending_scene_pos = None
             return
 
-        node_name, opts, proj_path, bs, code_before, code_after, build_system = dlg.getNodeData()
+        node_name, opts, proj_path, bs, code_before, code_after, build_system, custom_cmds = dlg.getNodeData()
 
         if not node_name:
             node_name = f"Node_{self.scene.nodeCounter}"
@@ -383,6 +383,8 @@ class NodeEditorWindow(QMainWindow):
         self._pending_scene_pos = None
         new_node = self.scene.addNewNode(node_name, opts, proj_path, bs, pos=pos)
         new_node.setBuildSystem(build_system)
+        if custom_cmds:
+            new_node.setCustomCommands(custom_cmds)
         if code_before:
             new_node.setCodeBeforeBuild(code_before)
         if code_after:

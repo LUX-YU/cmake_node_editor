@@ -1,5 +1,9 @@
 """
 Node Creation Dialog — uses shared ``CMakeOptionsEditor``.
+
+The *Build System* selector is presented first and drives the rest of the
+UI: which widgets are visible, which nodes can be inherited from, and
+which copy-attribute checkboxes are shown.
 """
 
 import os
@@ -7,11 +11,14 @@ import os
 from PyQt6.QtWidgets import (
     QDialog, QLineEdit, QPushButton, QVBoxLayout, QHBoxLayout,
     QFormLayout, QFileDialog, QMessageBox, QDialogButtonBox,
-    QCheckBox, QComboBox, QGroupBox,
+    QCheckBox, QComboBox, QGroupBox, QLabel,
 )
 
-from ..models.data_classes import BuildSettings
-from ..constants import DEFAULT_BUILD_DIR, DEFAULT_INSTALL_DIR, DEFAULT_BUILD_TYPE, BUILD_SYSTEMS, BUILD_SYSTEM_LABELS
+from ..models.data_classes import BuildSettings, CustomCommands
+from ..constants import (
+    DEFAULT_BUILD_DIR, DEFAULT_INSTALL_DIR, DEFAULT_BUILD_TYPE,
+    BUILD_SYSTEMS, BUILD_SYSTEM_LABELS,
+)
 from .widgets.cmake_options_editor import CMakeOptionsEditor
 
 
@@ -24,18 +31,31 @@ class NodeCreationDialog(QDialog):
     callers receive ready-to-use values.
     """
 
-    # Node-level attributes available for copying
-    _NODE_ATTRS = [
-        ("cmake_options", "CMake Options"),
+    # Shared attributes (available for every build system)
+    _SHARED_ATTRS = [
         ("code_before_build", "Pre-Configure Script"),
         ("code_after_install", "Post-Install Script"),
     ]
 
-    # Individual BuildSettings fields
-    _BS_ATTRS = [
+    # CMake-only node-level attributes
+    _CMAKE_ATTRS = [
+        ("cmake_options", "CMake Options"),
+    ]
+
+    # Custom-script-only node-level attributes
+    _CUSTOM_ATTRS = [
+        ("custom_commands", "Custom Commands (configure / build / install)"),
+    ]
+
+    # Build-settings fields shared across all build systems
+    _BS_SHARED = [
         ("build_dir", "Build Directory"),
         ("install_dir", "Install Directory"),
         ("build_type", "Build Type"),
+    ]
+
+    # Build-settings fields only relevant to CMake
+    _BS_CMAKE_ONLY = [
         ("prefix_path", "PREFIX_PATH"),
         ("toolchain_file", "Toolchain File"),
         ("generator", "Generator"),
@@ -49,71 +69,86 @@ class NodeCreationDialog(QDialog):
         self.setWindowTitle("Create New Node")
         self.resize(600, 600)
 
-        # -- Project path (auto-fills node name) --
-        self.project_path_edit = QLineEdit()
-        self.project_path_edit.textChanged.connect(self._onProjectPathChanged)
-        self.btn_browse_project = QPushButton("Browse Folder")
-        self.btn_browse_project.clicked.connect(self._onBrowseProject)
+        self._buildUI()
 
-        # -- Node name --
-        self.node_name_edit = QLineEdit()
-        self._name_manually_set = False
-        self.node_name_edit.textEdited.connect(self._onNameEdited)
+    # ------------------------------------------------------------------
+    # UI construction
+    # ------------------------------------------------------------------
 
-        # -- Inherit From --
-        self.inherit_combo = QComboBox()
-        self.inherit_combo.addItem("None")
-        for n in self.existing_nodes:
-            self.inherit_combo.addItem(n.title())
-        self.inherit_combo.currentIndexChanged.connect(self._onInheritChanged)
+    def _buildUI(self):
+        form = QFormLayout()
 
-        # -- Copy Attributes (disabled until a source node is selected) --
-        self._node_cbs: dict[str, QCheckBox] = {}
-        self._bs_cbs: dict[str, QCheckBox] = {}
-
-        self.copy_group = QGroupBox("Copy Attributes")
-        copy_layout = QVBoxLayout(self.copy_group)
-
-        for key, label in self._NODE_ATTRS:
-            cb = QCheckBox(label)
-            self._node_cbs[key] = cb
-            copy_layout.addWidget(cb)
-
-        bs_group = QGroupBox("Build Settings")
-        bs_layout = QVBoxLayout(bs_group)
-        for key, label in self._BS_ATTRS:
-            cb = QCheckBox(label)
-            self._bs_cbs[key] = cb
-            bs_layout.addWidget(cb)
-        copy_layout.addWidget(bs_group)
-
-        self.copy_group.setEnabled(False)
-
-        # -- Build System --
+        # ── 1. Build System (drives everything below) ──
         self.combo_build_system = QComboBox()
         for key in BUILD_SYSTEMS:
             self.combo_build_system.addItem(BUILD_SYSTEM_LABELS[key], key)
         self.combo_build_system.currentIndexChanged.connect(self._onBuildSystemChanged)
+        form.addRow("Build System:", self.combo_build_system)
 
-        # -- CMake options --
-        self.cmake_options_editor = CMakeOptionsEditor()
-
-        # -- Form layout --
-        form = QFormLayout()
+        # ── 2. Project path ──
+        self.project_path_edit = QLineEdit()
+        self.project_path_edit.textChanged.connect(self._onProjectPathChanged)
+        self.btn_browse_project = QPushButton("Browse Folder")
+        self.btn_browse_project.clicked.connect(self._onBrowseProject)
 
         proj_path_layout = QHBoxLayout()
         proj_path_layout.addWidget(self.project_path_edit)
         proj_path_layout.addWidget(self.btn_browse_project)
         form.addRow("Project Path:", proj_path_layout)
 
+        # ── 3. Node name ──
+        self.node_name_edit = QLineEdit()
+        self._name_manually_set = False
+        self.node_name_edit.textEdited.connect(self._onNameEdited)
         form.addRow("Node Name:", self.node_name_edit)
-        form.addRow("Build System:", self.combo_build_system)
-        form.addRow("Inherit From:", self.inherit_combo)
-        form.addRow(self.copy_group)
-        self._cmake_options_row_label = QLabel("CMake Options:")
-        form.addRow(self._cmake_options_row_label, self.cmake_options_editor)
 
-        # -- OK / Cancel --
+        # ── 4. Inherit From (filtered by build system) ──
+        self.inherit_combo = QComboBox()
+        self.inherit_combo.currentIndexChanged.connect(self._onInheritChanged)
+        form.addRow("Inherit From:", self.inherit_combo)
+
+        # ── 5. Copy Attributes ──
+        self._all_cbs: dict[str, QCheckBox] = {}
+
+        self.copy_group = QGroupBox("Copy Attributes")
+        copy_layout = QVBoxLayout(self.copy_group)
+
+        # Shared
+        for key, label in self._SHARED_ATTRS:
+            cb = QCheckBox(label)
+            self._all_cbs[key] = cb
+            copy_layout.addWidget(cb)
+
+        # CMake-only node attrs
+        for key, label in self._CMAKE_ATTRS:
+            cb = QCheckBox(label)
+            self._all_cbs[key] = cb
+            copy_layout.addWidget(cb)
+
+        # Custom-script-only node attrs
+        for key, label in self._CUSTOM_ATTRS:
+            cb = QCheckBox(label)
+            self._all_cbs[key] = cb
+            copy_layout.addWidget(cb)
+
+        # Build Settings sub-group
+        self.bs_group = QGroupBox("Build Settings")
+        bs_layout = QVBoxLayout(self.bs_group)
+        for key, label in self._BS_SHARED + self._BS_CMAKE_ONLY:
+            cb = QCheckBox(label)
+            self._all_cbs[key] = cb
+            bs_layout.addWidget(cb)
+        copy_layout.addWidget(self.bs_group)
+
+        self.copy_group.setEnabled(False)
+        form.addRow(self.copy_group)
+
+        # ── 6. CMake Options (only for cmake) ──
+        self._cmake_options_label = QLabel("CMake Options:")
+        self.cmake_options_editor = CMakeOptionsEditor()
+        form.addRow(self._cmake_options_label, self.cmake_options_editor)
+
+        # ── OK / Cancel ──
         self.buttons = QDialogButtonBox(
             QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel,
             parent=self,
@@ -125,15 +160,58 @@ class NodeCreationDialog(QDialog):
         main_layout.addLayout(form)
         main_layout.addWidget(self.buttons)
 
+        # Initial state
+        self._refreshForBuildSystem()
+
     # ------------------------------------------------------------------
     # Slots
     # ------------------------------------------------------------------
 
+    def _currentBuildSystem(self) -> str:
+        return self.combo_build_system.currentData() or "cmake"
+
     def _onBuildSystemChanged(self, _index: int):
-        """Show / hide CMake-specific widgets based on build system."""
-        is_cmake = self.combo_build_system.currentData() == "cmake"
+        """Rebuild Inherit-From list and toggle visibility of widgets."""
+        self._refreshForBuildSystem()
+
+    def _refreshForBuildSystem(self):
+        """Synchronise all UI elements with the current build-system choice."""
+        bs = self._currentBuildSystem()
+        is_cmake = (bs == "cmake")
+
+        # CMake Options editor
         self.cmake_options_editor.setVisible(is_cmake)
-        self._cmake_options_row_label.setVisible(is_cmake)
+        self._cmake_options_label.setVisible(is_cmake)
+
+        # Rebuild Inherit-From: only same-build-system nodes
+        prev_text = self.inherit_combo.currentText()
+        self.inherit_combo.blockSignals(True)
+        self.inherit_combo.clear()
+        self.inherit_combo.addItem("None")
+        self._filtered_nodes: list = []
+        for n in self.existing_nodes:
+            if n.buildSystem() == bs:
+                self.inherit_combo.addItem(n.title())
+                self._filtered_nodes.append(n)
+        # Try to restore previous selection
+        idx = self.inherit_combo.findText(prev_text)
+        self.inherit_combo.setCurrentIndex(max(idx, 0))
+        self.inherit_combo.blockSignals(False)
+        self._onInheritChanged(self.inherit_combo.currentIndex())
+
+        # Toggle copy-attribute checkboxes visibility
+        cmake_keys = {k for k, _ in self._CMAKE_ATTRS}
+        custom_keys = {k for k, _ in self._CUSTOM_ATTRS}
+        cmake_bs_keys = {k for k, _ in self._BS_CMAKE_ONLY}
+
+        for key, cb in self._all_cbs.items():
+            if key in cmake_keys:
+                cb.setVisible(is_cmake)
+            elif key in custom_keys:
+                cb.setVisible(not is_cmake)
+            elif key in cmake_bs_keys:
+                cb.setVisible(is_cmake)
+            # else: shared — always visible
 
     def _onInheritChanged(self, index: int):
         """Enable / disable the copy-attributes group."""
@@ -159,7 +237,7 @@ class NodeCreationDialog(QDialog):
             self.project_path_edit.setText(folder)
 
     def _onAccept(self):
-        is_cmake = self.combo_build_system.currentData() == "cmake"
+        is_cmake = self._currentBuildSystem() == "cmake"
 
         if is_cmake:
             opt_err = self.cmake_options_editor.validate()
@@ -181,17 +259,17 @@ class NodeCreationDialog(QDialog):
     # ------------------------------------------------------------------
 
     def _base_node(self):
-        """Return the selected source node, or *None*."""
+        """Return the selected source node (filtered list), or *None*."""
         idx = self.inherit_combo.currentIndex() - 1
-        if 0 <= idx < len(self.existing_nodes):
-            return self.existing_nodes[idx]
+        if 0 <= idx < len(self._filtered_nodes):
+            return self._filtered_nodes[idx]
         return None
 
     def getNodeData(
         self,
-    ) -> tuple[str, list[str], str, BuildSettings | None, str, str, str]:
+    ) -> tuple[str, list[str], str, BuildSettings | None, str, str, str, CustomCommands | None]:
         """Return ``(node_name, cmake_options, project_path, build_settings,
-        code_before, code_after, build_system)``.
+        code_before, code_after, build_system, custom_commands)``.
 
         All inheritance is resolved internally — callers receive ready-to-use
         values.
@@ -202,18 +280,33 @@ class NodeCreationDialog(QDialog):
         code_before = ""
         code_after = ""
         bs: BuildSettings | None = None
+        custom_cmds: CustomCommands | None = None
+        build_system = self._currentBuildSystem()
 
         base = self._base_node()
         if base:
-            if self._node_cbs["cmake_options"].isChecked():
-                cmake_opts = list(base.cmakeOptions())
-            if self._node_cbs["code_before_build"].isChecked():
+            # Shared attrs
+            if self._all_cbs.get("code_before_build", _NullCB).isChecked():
                 code_before = base.codeBeforeBuild()
-            if self._node_cbs["code_after_install"].isChecked():
+            if self._all_cbs.get("code_after_install", _NullCB).isChecked():
                 code_after = base.codeAfterInstall()
 
+            if build_system == "cmake":
+                if self._all_cbs.get("cmake_options", _NullCB).isChecked():
+                    cmake_opts = list(base.cmakeOptions())
+            else:
+                if self._all_cbs.get("custom_commands", _NullCB).isChecked():
+                    src_cc = base.customCommands()
+                    if src_cc:
+                        custom_cmds = CustomCommands(
+                            configure_script=src_cc.configure_script,
+                            build_script=src_cc.build_script,
+                            install_script=src_cc.install_script,
+                        )
+
             # Build settings — merge only checked fields over defaults
-            checked_bs = [k for k, cb in self._bs_cbs.items() if cb.isChecked()]
+            bs_keys_all = [k for k, _ in self._BS_SHARED + self._BS_CMAKE_ONLY]
+            checked_bs = [k for k in bs_keys_all if self._all_cbs.get(k, _NullCB).isChecked()]
             if checked_bs:
                 src = base.buildSettings()
                 bs = BuildSettings(
@@ -227,5 +320,11 @@ class NodeCreationDialog(QDialog):
                     cxx_compiler=src.cxx_compiler if "cxx_compiler" in checked_bs else "",
                 )
 
-        build_system = self.combo_build_system.currentData()
-        return node_name, cmake_opts, proj_path, bs, code_before, code_after, build_system
+        return node_name, cmake_opts, proj_path, bs, code_before, code_after, build_system, custom_cmds
+
+
+class _NullCB:
+    """Sentinel so `dict.get(key, _NullCB).isChecked()` always returns False."""
+    @staticmethod
+    def isChecked() -> bool:
+        return False
