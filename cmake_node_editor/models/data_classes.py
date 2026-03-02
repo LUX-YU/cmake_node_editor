@@ -22,6 +22,14 @@ class BuildSettings:
 
 
 @dataclass
+class CustomCommands:
+    """Three-stage user-defined scripts for non-CMake build systems."""
+    configure_script: str = ""
+    build_script: str = ""
+    install_script: str = ""
+
+
+@dataclass
 class NodeData:
     node_id: int
     title: str
@@ -32,6 +40,8 @@ class NodeData:
     build_settings: BuildSettings
     code_before_build: str = ""
     code_after_install: str = ""
+    build_system: str = "cmake"
+    custom_commands: CustomCommands | None = None
 
 
 @dataclass

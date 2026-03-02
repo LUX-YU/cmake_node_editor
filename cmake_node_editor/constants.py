@@ -50,3 +50,9 @@ GENERATORS = [
     "Ninja",
     "Unix Makefiles",
 ]
+
+# ---------------------------------------------------------------------------
+# Build systems
+# ---------------------------------------------------------------------------
+BUILD_SYSTEMS = ["cmake", "custom_script"]
+BUILD_SYSTEM_LABELS = {"cmake": "CMake", "custom_script": "Custom Script"}

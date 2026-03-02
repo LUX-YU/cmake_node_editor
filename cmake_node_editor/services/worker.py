@@ -35,6 +35,9 @@ class CommandExecutor:
             if cmd_data.type == "cmd":
                 return self._run_cmd(cmd_data)
 
+            if cmd_data.type == "shell":
+                return self._run_shell(cmd_data)
+
             self.result_queue.put(SubprocessLogData(
                 index=-1, log=f"[Worker] Unknown command type: {cmd_data.type}"))
             return False
@@ -115,6 +118,56 @@ class CommandExecutor:
             log=f"[Worker] Command failed: {cmd_data.display_name}, "
                 f"returncode={run_res.returncode}"))
         return False
+
+    def _run_shell(self, cmd_data: CommandData) -> bool:
+        """Write a shell/batch script to a temp file and execute it."""
+        import platform
+        import tempfile
+
+        self.result_queue.put(SubprocessLogData(
+            index=-1,
+            log=f"[Worker] Executing shell script: {cmd_data.display_name}"))
+
+        is_win = platform.system() == "Windows"
+        suffix = ".bat" if is_win else ".sh"
+        shell_cmd: list[str] = ["cmd", "/c"] if is_win else ["sh", "-e"]
+
+        with tempfile.NamedTemporaryFile(
+            mode="w", suffix=suffix, delete=False, encoding="utf-8",
+        ) as tmp:
+            if not is_win:
+                tmp.write("#!/bin/sh\nset -e\n")
+            tmp.write(cmd_data.cmd)
+            tmp_path = tmp.name
+
+        try:
+            run_res = subprocess.run(
+                shell_cmd + [tmp_path],
+                check=False, capture_output=True, text=True,
+                timeout=self.SUBPROCESS_TIMEOUT,
+            )
+            if run_res.stdout:
+                self.result_queue.put(SubprocessLogData(index=-1, log=run_res.stdout))
+            if run_res.stderr:
+                self.result_queue.put(SubprocessLogData(index=-1, log=run_res.stderr))
+            if run_res.returncode == 0:
+                self.result_queue.put(SubprocessLogData(
+                    index=-1,
+                    log=f"[Worker] Shell script succeeded: {cmd_data.display_name}"))
+                return True
+            self.result_queue.put(SubprocessLogData(
+                index=-1,
+                log=f"[Worker] Shell script failed: {cmd_data.display_name}, "
+                    f"returncode={run_res.returncode}"))
+            return False
+        except subprocess.TimeoutExpired:
+            self.result_queue.put(SubprocessLogData(
+                index=-1,
+                log=f"[Worker] Shell script timed out ({self.SUBPROCESS_TIMEOUT}s): "
+                    f"{cmd_data.display_name}"))
+            return False
+        finally:
+            os.unlink(tmp_path)
 
 
 # ---------------------------------------------------------------------------

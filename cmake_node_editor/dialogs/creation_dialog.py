@@ -11,7 +11,7 @@ from PyQt6.QtWidgets import (
 )
 
 from ..models.data_classes import BuildSettings
-from ..constants import DEFAULT_BUILD_DIR, DEFAULT_INSTALL_DIR, DEFAULT_BUILD_TYPE
+from ..constants import DEFAULT_BUILD_DIR, DEFAULT_INSTALL_DIR, DEFAULT_BUILD_TYPE, BUILD_SYSTEMS, BUILD_SYSTEM_LABELS
 from .widgets.cmake_options_editor import CMakeOptionsEditor
 
 
@@ -89,6 +89,12 @@ class NodeCreationDialog(QDialog):
 
         self.copy_group.setEnabled(False)
 
+        # -- Build System --
+        self.combo_build_system = QComboBox()
+        for key in BUILD_SYSTEMS:
+            self.combo_build_system.addItem(BUILD_SYSTEM_LABELS[key], key)
+        self.combo_build_system.currentIndexChanged.connect(self._onBuildSystemChanged)
+
         # -- CMake options --
         self.cmake_options_editor = CMakeOptionsEditor()
 
@@ -101,9 +107,11 @@ class NodeCreationDialog(QDialog):
         form.addRow("Project Path:", proj_path_layout)
 
         form.addRow("Node Name:", self.node_name_edit)
+        form.addRow("Build System:", self.combo_build_system)
         form.addRow("Inherit From:", self.inherit_combo)
         form.addRow(self.copy_group)
-        form.addRow("CMake Options:", self.cmake_options_editor)
+        self._cmake_options_row_label = QLabel("CMake Options:")
+        form.addRow(self._cmake_options_row_label, self.cmake_options_editor)
 
         # -- OK / Cancel --
         self.buttons = QDialogButtonBox(
@@ -120,6 +128,12 @@ class NodeCreationDialog(QDialog):
     # ------------------------------------------------------------------
     # Slots
     # ------------------------------------------------------------------
+
+    def _onBuildSystemChanged(self, _index: int):
+        """Show / hide CMake-specific widgets based on build system."""
+        is_cmake = self.combo_build_system.currentData() == "cmake"
+        self.cmake_options_editor.setVisible(is_cmake)
+        self._cmake_options_row_label.setVisible(is_cmake)
 
     def _onInheritChanged(self, index: int):
         """Enable / disable the copy-attributes group."""
@@ -145,16 +159,19 @@ class NodeCreationDialog(QDialog):
             self.project_path_edit.setText(folder)
 
     def _onAccept(self):
-        opt_err = self.cmake_options_editor.validate()
-        if opt_err:
-            QMessageBox.critical(self, "Error", opt_err)
-            return
+        is_cmake = self.combo_build_system.currentData() == "cmake"
+
+        if is_cmake:
+            opt_err = self.cmake_options_editor.validate()
+            if opt_err:
+                QMessageBox.critical(self, "Error", opt_err)
+                return
 
         proj_path = self.project_path_edit.text().strip()
         if not os.path.isdir(proj_path):
             QMessageBox.critical(self, "Error", "Please select a valid project folder.")
             return
-        if not os.path.exists(os.path.join(proj_path, "CMakeLists.txt")):
+        if is_cmake and not os.path.exists(os.path.join(proj_path, "CMakeLists.txt")):
             QMessageBox.critical(self, "Error", "No CMakeLists.txt found in that folder.")
             return
         self.accept()
@@ -172,9 +189,9 @@ class NodeCreationDialog(QDialog):
 
     def getNodeData(
         self,
-    ) -> tuple[str, list[str], str, BuildSettings | None, str, str]:
+    ) -> tuple[str, list[str], str, BuildSettings | None, str, str, str]:
         """Return ``(node_name, cmake_options, project_path, build_settings,
-        code_before, code_after)``.
+        code_before, code_after, build_system)``.
 
         All inheritance is resolved internally — callers receive ready-to-use
         values.
@@ -210,4 +227,5 @@ class NodeCreationDialog(QDialog):
                     cxx_compiler=src.cxx_compiler if "cxx_compiler" in checked_bs else "",
                 )
 
-        return node_name, cmake_opts, proj_path, bs, code_before, code_after
+        build_system = self.combo_build_system.currentData()
+        return node_name, cmake_opts, proj_path, bs, code_before, code_after, build_system

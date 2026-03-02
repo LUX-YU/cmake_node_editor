@@ -1,25 +1,29 @@
 """
-CMake command builder service.
+Command builder service.
 
-Knows how to produce :class:`ProjectCommands` (configure / build / install
-command sequences) from a topologically sorted list of node-like objects.
+Assembles :class:`ProjectCommands` by delegating per-node command generation
+to the appropriate :class:`BuildStrategy`.  The public entry point
+:func:`build_project_commands` iterates a topologically sorted node list,
+resolves path templates, and collects the results.
 
 Any object that exposes ``id()``, ``title()``, ``projectPath()``,
 ``buildSettings()``, ``cmakeOptions()``, ``codeBeforeBuild()``,
-``codeAfterInstall()`` and ``nodeData()`` is accepted (duck typing).
+``codeAfterInstall()``, ``nodeData()``, ``buildSystem()``, and
+``customCommands()`` is accepted (duck typing).
 This allows both :class:`NodeItem` (GUI) and :class:`NodeProxy` (CLI) to
 be used interchangeably.
 """
 
 from __future__ import annotations
 
-import multiprocessing
 import os
 import re
 
 from ..models.data_classes import (
     ProjectCommands, NodeCommands, CommandData, NodeData, BuildSettings,
+    CustomCommands,
 )
+from .build_strategies import get_strategy
 
 
 def _sanitize_name(name: str) -> str:
@@ -61,10 +65,11 @@ class NodeProxy:
     def nodeData(self) -> NodeData:
         return self._data
 
+    def buildSystem(self) -> str:
+        return self._data.build_system
 
-def _sanitize_name(name: str) -> str:
-    """Remove characters unsafe for filesystem paths."""
-    return re.sub(r'[^\w\-.]', '_', name)
+    def customCommands(self) -> CustomCommands | None:
+        return self._data.custom_commands
 
 
 def build_project_commands(
@@ -111,98 +116,37 @@ def build_project_commands(
     )
 
     for node_obj in nodes_slice:
-        node_cmd = NodeCommands(index=node_obj.id(), node_data=node_obj.nodeData(), cmd_list=[])
-
         bs = node_obj.buildSettings()
-        build_root = bs.build_dir
-        install_root = bs.install_dir
         build_type = bs.build_type
-        toolchain_path = bs.toolchain_file
-        prefix_path = bs.prefix_path
-        generator = bs.generator
-        c_compiler = bs.c_compiler
-        cxx_compiler = bs.cxx_compiler
-
         project_name = node_obj.title()
         safe_project_name = _sanitize_name(project_name)
         project_dir = node_obj.projectPath()
 
-        # Pre-configure script
-        if stage in ("configure", "all") and node_obj.codeBeforeBuild().strip():
-            node_cmd.cmd_list.append(CommandData(
-                type="script",
-                cmd=node_obj.codeBeforeBuild(),
-                display_name=f"Pre-Configure Script {project_name}",
-            ))
-
-        if not project_dir or not os.path.isdir(project_dir):
-            return f"{project_name} has invalid project path."
-
-        cmake_lists_file = os.path.join(project_dir, "CMakeLists.txt")
-        if not os.path.exists(cmake_lists_file):
-            return f"CMakeLists.txt not found in {project_dir}."
-
+        # Resolve path templates
         node_build_dir = os.path.join(
-            build_root.format(build_type=build_type), safe_project_name,
+            bs.build_dir.format(build_type=build_type), safe_project_name,
         )
-        node_install_dir = install_root.format(build_type=build_type)
-        node_prefix_path = prefix_path.format(build_type=build_type) if prefix_path else ""
-        os.makedirs(node_build_dir, exist_ok=True)
+        node_install_dir = bs.install_dir.format(build_type=build_type)
+        node_prefix_path = (
+            bs.prefix_path.format(build_type=build_type) if bs.prefix_path else ""
+        )
 
-        # Configure command
-        cmd_configure = [
-            "cmake",
-            "-S", project_dir,
-            "-B", node_build_dir,
-            f"-DCMAKE_BUILD_TYPE:STRING={build_type}",
-            f"-DCMAKE_INSTALL_PREFIX={node_install_dir}",
-        ]
-        if generator:
-            cmd_configure[1:1] = ["-G", generator]
-        if c_compiler:
-            cmd_configure.append(f"-DCMAKE_C_COMPILER:FILEPATH={c_compiler}")
-        if cxx_compiler:
-            cmd_configure.append(f"-DCMAKE_CXX_COMPILER:FILEPATH={cxx_compiler}")
-        if toolchain_path:
-            cmd_configure.append(f"-DCMAKE_TOOLCHAIN_FILE={toolchain_path}")
-        if node_prefix_path:
-            cmd_configure.append(f"-DCMAKE_PREFIX_PATH={node_prefix_path}")
-        # NOTE: {build_type} in build_dir / install_dir / prefix_path is
-        #       resolved above via str.format(build_type=...).
-        for opt in node_obj.cmakeOptions():
-            cmd_configure.append(opt)
+        # Delegate to the appropriate strategy
+        strategy = get_strategy(node_obj.buildSystem())
 
-        if stage in ("configure", "all"):
-            node_cmd.cmd_list.append(CommandData(
-                type="cmd", cmd=cmd_configure, display_name=f"Configure {project_name}",
-            ))
+        err = strategy.validate(node_obj, project_dir)
+        if err:
+            return err
 
-        # Build command
-        cmd_build = [
-            "cmake", "--build", node_build_dir,
-            "--config", build_type,
-            "--parallel", str(multiprocessing.cpu_count()),
-        ]
-        if stage in ("build", "all"):
-            node_cmd.cmd_list.append(CommandData(
-                type="cmd", cmd=cmd_build, display_name=f"Build {project_name}",
-            ))
+        cmd_list = strategy.generate_commands(
+            node_obj, stage, node_build_dir, node_install_dir, node_prefix_path,
+        )
 
-        # Install command
-        cmd_install = ["cmake", "--install", node_build_dir, "--config", build_type]
-        if stage in ("install", "all"):
-            node_cmd.cmd_list.append(CommandData(
-                type="cmd", cmd=cmd_install, display_name=f"Install {project_name}",
-            ))
-
-            if node_obj.codeAfterInstall().strip():
-                node_cmd.cmd_list.append(CommandData(
-                    type="script",
-                    cmd=node_obj.codeAfterInstall(),
-                    display_name=f"Post-Install Script {project_name}",
-                ))
-
+        node_cmd = NodeCommands(
+            index=node_obj.id(), node_data=node_obj.nodeData(), cmd_list=cmd_list,
+        )
         project_commands.node_commands_list.append(node_cmd)
+
         if only_first:
             break
 

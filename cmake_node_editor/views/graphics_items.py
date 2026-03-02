@@ -17,7 +17,7 @@ from PyQt6.QtWidgets import (
     QGraphicsItem, QGraphicsTextItem,
 )
 
-from ..models.data_classes import NodeData, EdgeData, BuildSettings
+from ..models.data_classes import NodeData, EdgeData, BuildSettings, CustomCommands
 from ..constants import (
     NODE_WIDTH, NODE_HEIGHT, PIN_SIZE,
     DEFAULT_BUILD_DIR, DEFAULT_INSTALL_DIR, DEFAULT_BUILD_TYPE,
@@ -330,6 +330,12 @@ class NodeItem(QGraphicsRectItem):
     def setCodeAfterInstall(self, code_str: str):
         self._data.code_after_install = code_str
 
+    def setBuildSystem(self, build_system: str):
+        self._data.build_system = build_system
+
+    def setCustomCommands(self, cc: CustomCommands | None):
+        self._data.custom_commands = cc
+
     # -- Accessors --
 
     def id(self) -> int:
@@ -358,6 +364,12 @@ class NodeItem(QGraphicsRectItem):
 
     def codeAfterInstall(self) -> str:
         return self._data.code_after_install
+
+    def buildSystem(self) -> str:
+        return self._data.build_system
+
+    def customCommands(self) -> CustomCommands | None:
+        return self._data.custom_commands
 
     def nodeData(self) -> NodeData:
         return self._data

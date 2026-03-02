@@ -9,7 +9,7 @@ import os
 from dataclasses import asdict
 from typing import TYPE_CHECKING
 
-from ..models.data_classes import NodeData, BuildSettings
+from ..models.data_classes import NodeData, BuildSettings, CustomCommands
 from ..constants import DEFAULT_BUILD_DIR, DEFAULT_INSTALL_DIR, DEFAULT_BUILD_TYPE
 
 if TYPE_CHECKING:
@@ -63,6 +63,11 @@ def load_project(filepath: str) -> tuple[dict, list[NodeData], list[dict]]:
             c_compiler=bs_dict.get("c_compiler", ""),
             cxx_compiler=bs_dict.get("cxx_compiler", ""),
         )
+        # Build system (defaults to "cmake" for old project files)
+        build_system = nd.get("build_system", "cmake")
+        cc_dict = nd.get("custom_commands", None)
+        custom_commands = CustomCommands(**cc_dict) if cc_dict else None
+
         node_data_list.append(NodeData(
             node_id=nd["node_id"],
             title=nd["title"],
@@ -73,6 +78,8 @@ def load_project(filepath: str) -> tuple[dict, list[NodeData], list[dict]]:
             build_settings=bs,
             code_before_build=nd.get("code_before_build", ""),
             code_after_install=nd.get("code_after_install", ""),
+            build_system=build_system,
+            custom_commands=custom_commands,
         ))
 
     edge_dicts = data.get("edges", [])
