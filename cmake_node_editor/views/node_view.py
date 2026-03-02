@@ -95,6 +95,11 @@ class NodeView(QGraphicsView):
             act_install_from = menu.addAction("Install From This")
             act_gen_to = menu.addAction("Generate To This")
             menu.addSeparator()
+            act_cfg_to = menu.addAction("Configure To This (deps only)")
+            act_build_to = menu.addAction("Build To This (deps only)")
+            act_install_to = menu.addAction("Install To This (deps only)")
+            act_gen_to_deps = menu.addAction("Generate To This (deps only)")
+            menu.addSeparator()
             act_open_dir = menu.addAction("Open Project Directory")
             # -- Open in Editor submenu --
             editor_actions = self._buildEditorMenu(menu, item.projectPath())
@@ -129,6 +134,14 @@ class NodeView(QGraphicsView):
                     ctx.buildRequested.emit("install", {"start_node_id": item.id()})
                 elif action == act_gen_to:
                     ctx.generateRequested.emit({"end_node_id": item.id()})
+                elif action == act_cfg_to:
+                    ctx.buildToRequested.emit("configure", item)
+                elif action == act_build_to:
+                    ctx.buildToRequested.emit("build", item)
+                elif action == act_install_to:
+                    ctx.buildToRequested.emit("install", item)
+                elif action == act_gen_to_deps:
+                    ctx.buildToRequested.emit("all", item)
         else:
             act_new = menu.addAction("Create Node")
             if ctx:

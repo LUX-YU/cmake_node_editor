@@ -28,6 +28,7 @@ from .views.node_view import NodeView
 from .models.data_classes import SubprocessLogData, SubprocessResponseData
 from .services.cmake_command_builder import build_project_commands
 from .dialogs.creation_dialog import NodeCreationDialog
+from .dialogs.dependency_preview_dialog import DependencyPreviewDialog
 from .dialogs.settings_dialog import SettingsDialog
 from .dialogs.node_properties_dialog import NodePropertiesDialog
 from .dialogs.batch_edit_dialog import BatchEditDialog
@@ -186,6 +187,7 @@ class NodeEditorWindow(QMainWindow):
         self.ctx.openPropertiesRequested.connect(self.openNodePropertyDialog)
         self.ctx.buildRequested.connect(self._onBuildSignal)
         self.ctx.generateRequested.connect(self._onGenerateSignal)
+        self.ctx.buildToRequested.connect(self._onBuildToSignal)
         self.ctx.cancelBuildRequested.connect(self._onCancelBuild)
 
     def _onBuildSignal(self, stage: str, kwargs: dict):
@@ -195,6 +197,64 @@ class NodeEditorWindow(QMainWindow):
     def _onGenerateSignal(self, kwargs: dict):
         """Slot for ``EditorContext.generateRequested``."""
         self.runGenerate(**kwargs)
+
+    def _onBuildToSignal(self, stage: str, target_node):
+        """Slot for ``EditorContext.buildToRequested``.
+
+        Computes the minimal ancestor dependency order for *target_node*,
+        shows a confirmation dialog, then executes the build.
+        """
+        ordered = self.scene.ancestorSubgraphSort(target_node)
+        if ordered is None:
+            QMessageBox.critical(
+                self, "Error",
+                "Detected circular dependency — cannot compute build order."
+            )
+            return
+
+        dlg = DependencyPreviewDialog(stage, target_node, ordered, self)
+        if dlg.exec() != QDialog.DialogCode.Accepted:
+            return
+
+        # Build using the minimal subgraph order directly
+        self._runStageWithNodes(stage, ordered)
+
+    def _runStageWithNodes(self, stage: str, ordered_nodes: list) -> None:
+        """Run a build *stage* on an explicit list of already-ordered nodes."""
+        if self._building:
+            QMessageBox.warning(self, "Warning", "A build is already in progress.")
+            return
+
+        self.build_output_text.clear()
+
+        result = build_project_commands(
+            ordered_nodes,
+            stage=stage,
+            start_index=0,
+            end_index=len(ordered_nodes),
+            start_node_id=ordered_nodes[0].id() if ordered_nodes else -1,
+            only_first=False,
+        )
+        if isinstance(result, str):
+            QMessageBox.critical(self, "Error", result)
+            return
+
+        project_commands = result
+
+        # Progress bar
+        self.total_steps = len(project_commands.node_commands_list)
+        self.progress_bar.setMaximum(self.total_steps)
+        self.progress_bar.setValue(0)
+        self.progress_bar.show()
+        self.current_progress = 0
+
+        # Delegate to WorkerManager
+        self._building = True
+        self._registry.set_enabled("project.cancel_build", True)
+        self.ctx.worker.start()
+        self.ctx.worker.create_listener(self._onWorkerLog, self._onWorkerResponse)
+        self.ctx.worker.send(project_commands)
+        self.build_output_text.appendPlainText("[Main] Sent ProjectCommands to worker.")
 
     def _initStatusBar(self):
         self.progress_bar = QProgressBar()

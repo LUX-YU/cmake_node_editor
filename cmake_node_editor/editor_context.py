@@ -44,6 +44,7 @@ class EditorContext(QObject):
     # -- Build signals --
     buildRequested        = pyqtSignal(str, dict)       # (stage, kwargs)
     generateRequested     = pyqtSignal(dict)            # kwargs
+    buildToRequested      = pyqtSignal(str, object)     # (stage, NodeItem)
     cancelBuildRequested  = pyqtSignal()
 
     # -- File signals --

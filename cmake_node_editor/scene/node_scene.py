@@ -200,6 +200,10 @@ class NodeScene(QGraphicsScene):
     def topologicalSort(self) -> list[NodeItem] | None:
         return self._model.topologicalSort()
 
+    def ancestorSubgraphSort(self, target: NodeItem) -> list[NodeItem] | None:
+        """Return minimal dependency build order for *target*."""
+        return self._model.ancestorSubgraphSort(target)
+
     # -- Serialization --
 
     def saveProjectToJson(self, filepath: str, start_node_id: int | None = None) -> str | None:

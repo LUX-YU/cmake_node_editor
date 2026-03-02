@@ -120,3 +120,53 @@ class GraphModel:
                     queue.append(child)
 
         return result if len(result) == len(self.nodes) else None
+
+    def ancestorSubgraphSort(self, target: "NodeItem") -> list["NodeItem"] | None:
+        """Return the topological order of *target* and all its transitive
+        dependencies (ancestors in the DAG).
+
+        This is the "minimum dependency build order" — only the nodes that
+        *target* transitively depends on are included, in a valid build
+        sequence ending with *target* itself.
+
+        Returns *None* on cycle detection.
+        """
+        # Build reverse adjacency  (child → list[parent])
+        reverse_adj: dict["NodeItem", list["NodeItem"]] = {n: [] for n in self.nodes}
+        for edge in self.edges:
+            src = edge.sourcePin().parent_node
+            dst = edge.targetPin().parent_node
+            reverse_adj[dst].append(src)
+
+        # BFS backwards from target to collect all ancestors
+        visited: set["NodeItem"] = set()
+        queue = deque([target])
+        visited.add(target)
+        while queue:
+            node = queue.popleft()
+            for parent in reverse_adj[node]:
+                if parent not in visited:
+                    visited.add(parent)
+                    queue.append(parent)
+
+        # Kahn's algorithm on the ancestor subgraph only
+        forward_adj: dict["NodeItem", list["NodeItem"]] = {n: [] for n in visited}
+        in_degree: dict["NodeItem", int] = {n: 0 for n in visited}
+        for edge in self.edges:
+            src = edge.sourcePin().parent_node
+            dst = edge.targetPin().parent_node
+            if src in visited and dst in visited:
+                forward_adj[src].append(dst)
+                in_degree[dst] += 1
+
+        q = deque(n for n, deg in in_degree.items() if deg == 0)
+        result: list["NodeItem"] = []
+        while q:
+            node = q.popleft()
+            result.append(node)
+            for child in forward_adj[node]:
+                in_degree[child] -= 1
+                if in_degree[child] == 0:
+                    q.append(child)
+
+        return result if len(result) == len(visited) else None
