@@ -6,21 +6,85 @@ from __future__ import annotations
 
 import multiprocessing
 import os
+from typing import TYPE_CHECKING, Any
 
 from .base import BuildStrategy
 from ...models.data_classes import CommandData
+
+if TYPE_CHECKING:
+    from ...views.graphics_items import NodeItem
 
 
 class CMakeStrategy(BuildStrategy):
     """Generate configure / build / install commands for a CMake project."""
 
-    def validate(self, node, project_dir: str) -> str | None:
+    # ------------------------------------------------------------------
+    # Identity
+    # ------------------------------------------------------------------
+
+    @property
+    def name(self) -> str:
+        return "cmake"
+
+    @property
+    def label(self) -> str:
+        return "CMake"
+
+    # ------------------------------------------------------------------
+    # Validation
+    # ------------------------------------------------------------------
+
+    def validate_project_dir(self, project_dir: str) -> str | None:
+        if not os.path.exists(os.path.join(project_dir, "CMakeLists.txt")):
+            return "No CMakeLists.txt found in that folder."
+        return None
+
+    def validate(self, node: Any, project_dir: str) -> str | None:
         if not project_dir or not os.path.isdir(project_dir):
             return f"{node.title()} has invalid project path."
         cmake_lists = os.path.join(project_dir, "CMakeLists.txt")
         if not os.path.exists(cmake_lists):
             return f"CMakeLists.txt not found in {project_dir}."
         return None
+
+    # ------------------------------------------------------------------
+    # BuildSettings metadata
+    # ------------------------------------------------------------------
+
+    def relevant_build_setting_keys(self) -> list[str]:
+        return [
+            "build_dir", "install_dir", "build_type",
+            "prefix_path", "toolchain_file", "generator",
+            "c_compiler", "cxx_compiler",
+        ]
+
+    # ------------------------------------------------------------------
+    # Inheritance
+    # ------------------------------------------------------------------
+
+    def copyable_node_attrs(self) -> list[tuple[str, str]]:
+        return [("cmake_options", "CMake Options")]
+
+    def copy_node_data(
+        self,
+        target_node: "NodeItem",
+        source_node: "NodeItem",
+        selected_keys: set[str],
+    ) -> None:
+        if "cmake_options" in selected_keys:
+            target_node.setCMakeOptions(list(source_node.cmakeOptions()))
+
+    # ------------------------------------------------------------------
+    # Properties form
+    # ------------------------------------------------------------------
+
+    def create_properties_form(self) -> Any:
+        from ...dialogs.widgets.cmake_strategy_form import CMakeStrategyForm
+        return CMakeStrategyForm()
+
+    # ------------------------------------------------------------------
+    # Command generation
+    # ------------------------------------------------------------------
 
     def generate_commands(
         self,

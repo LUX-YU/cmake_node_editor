@@ -370,8 +370,9 @@ class NodeEditorWindow(QMainWindow):
             self._pending_scene_pos = None
             return
 
-        node_name, opts, proj_path, bs, code_before, code_after, build_system, custom_cmds = dlg.getNodeData()
+        r = dlg.getResult()
 
+        node_name = r.node_name
         if not node_name:
             node_name = f"Node_{self.scene.nodeCounter}"
         if any(n.title() == node_name for n in self.scene.nodes):
@@ -381,14 +382,21 @@ class NodeEditorWindow(QMainWindow):
 
         pos = self._pending_scene_pos
         self._pending_scene_pos = None
-        new_node = self.scene.addNewNode(node_name, opts, proj_path, bs, pos=pos)
-        new_node.setBuildSystem(build_system)
-        if custom_cmds:
-            new_node.setCustomCommands(custom_cmds)
-        if code_before:
-            new_node.setCodeBeforeBuild(code_before)
-        if code_after:
-            new_node.setCodeAfterInstall(code_after)
+        new_node = self.scene.addNewNode(
+            node_name, [], r.project_path, r.build_settings, pos=pos,
+        )
+        new_node.setBuildSystem(r.build_system)
+
+        # Strategy-specific inheritance (delegated to the strategy)
+        if r.inherit_source and r.inherit_keys:
+            from .services.build_strategies import get_strategy
+            strategy = get_strategy(r.build_system)
+            strategy.copy_node_data(new_node, r.inherit_source, r.inherit_keys)
+
+        if r.code_before_build:
+            new_node.setCodeBeforeBuild(r.code_before_build)
+        if r.code_after_install:
+            new_node.setCodeAfterInstall(r.code_after_install)
         self.scene.clearSelection()
         new_node.setSelected(True)
         self._undo_stack.clear()  # complex creation — reset undo stack

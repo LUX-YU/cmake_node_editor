@@ -1,19 +1,20 @@
 """
-Node Properties Dialog — uses shared ``BuildSettingsForm`` and ``CMakeOptionsEditor``.
+Node Properties Dialog — **strategy-driven** layout.
+
+The Build System combo populates the ``QStackedWidget`` dynamically from
+the strategy registry.  Each strategy provides its own form widget via
+:meth:`BuildStrategy.create_properties_form`, so adding a new build
+system requires **zero changes** in this file.
 """
 
 from PyQt6.QtWidgets import (
-    QDialog, QVBoxLayout, QHBoxLayout, QFormLayout, QWidget,
-    QLabel, QLineEdit, QPushButton, QPlainTextEdit,
+    QDialog, QVBoxLayout, QFormLayout, QWidget,
+    QLabel, QLineEdit, QPlainTextEdit,
     QDialogButtonBox, QMessageBox, QComboBox, QStackedWidget,
 )
 
-from ..models.data_classes import BuildSettings, CustomCommands
 from ..views.graphics_items import NodeItem
-from ..constants import BUILD_SYSTEMS, BUILD_SYSTEM_LABELS
-from .widgets.build_settings_form import BuildSettingsForm
-from .widgets.cmake_options_editor import CMakeOptionsEditor
-from .widgets.custom_commands_form import CustomCommandsForm
+from ..services.build_strategies import get_strategy, STRATEGY_NAMES, STRATEGY_LABELS
 
 
 class NodePropertiesDialog(QDialog):
@@ -25,6 +26,9 @@ class NodePropertiesDialog(QDialog):
         self.setWindowTitle(f"Edit Node - {node_item.title()}")
         self.resize(700, 800)
 
+        # maps strategy name → (stack index, form widget)
+        self._form_map: dict[str, tuple[int, QWidget]] = {}
+
         self._buildUI()
         self.loadFromNode(node_item)
 
@@ -32,7 +36,7 @@ class NodePropertiesDialog(QDialog):
     def _buildUI(self):
         layout = QVBoxLayout(self)
 
-        # Project path (first — most important field)
+        # Project path
         form_proj = QFormLayout()
         self.edit_node_project_path = QLineEdit()
         form_proj.addRow("Project Path:", self.edit_node_project_path)
@@ -47,36 +51,22 @@ class NodePropertiesDialog(QDialog):
         # Build System selector
         form_bs = QFormLayout()
         self.combo_build_system = QComboBox()
-        for key in BUILD_SYSTEMS:
-            self.combo_build_system.addItem(BUILD_SYSTEM_LABELS[key], key)
+        for name in STRATEGY_NAMES:
+            self.combo_build_system.addItem(STRATEGY_LABELS[name], name)
         self.combo_build_system.currentIndexChanged.connect(self._onBuildSystemChanged)
         form_bs.addRow("Build System:", self.combo_build_system)
         layout.addLayout(form_bs)
 
-        # Stacked widget: page 0 = CMake, page 1 = Custom Script
+        # Strategy-specific forms in a stacked widget
         self.stack = QStackedWidget()
-
-        # -- CMake page --
-        cmake_page = QWidget()
-        cmake_layout = QVBoxLayout(cmake_page)
-        cmake_layout.setContentsMargins(0, 0, 0, 0)
-        self.cmake_options_editor = CMakeOptionsEditor()
-        cmake_layout.addWidget(self.cmake_options_editor)
-        self.build_settings_form = BuildSettingsForm()
-        cmake_layout.addWidget(self.build_settings_form)
-        self.stack.addWidget(cmake_page)
-
-        # -- Custom Script page --
-        custom_page = QWidget()
-        custom_layout = QVBoxLayout(custom_page)
-        custom_layout.setContentsMargins(0, 0, 0, 0)
-        self.custom_commands_form = CustomCommandsForm()
-        custom_layout.addWidget(self.custom_commands_form)
-        self.stack.addWidget(custom_page)
-
+        for idx, name in enumerate(STRATEGY_NAMES):
+            strategy = get_strategy(name)
+            form = strategy.create_properties_form()
+            self.stack.addWidget(form)
+            self._form_map[name] = (idx, form)
         layout.addWidget(self.stack)
 
-        # Scripts (shared — pre-build / post-install Python scripts)
+        # Shared scripts
         layout.addWidget(QLabel("Pre-Build Script (py_code_before_build):"))
         self.edit_py_before = QPlainTextEdit()
         layout.addWidget(self.edit_py_before)
@@ -94,35 +84,50 @@ class NodePropertiesDialog(QDialog):
         buttons.rejected.connect(self.reject)
         layout.addWidget(buttons)
 
-    def _onBuildSystemChanged(self, index: int):
-        self.stack.setCurrentIndex(index)
+    # ------------------------------------------------------------------
+    # Slots
+    # ------------------------------------------------------------------
+
+    def _onBuildSystemChanged(self, _index: int):
+        bs_name = self.combo_build_system.currentData()
+        if bs_name in self._form_map:
+            self.stack.setCurrentIndex(self._form_map[bs_name][0])
 
     def _onAccept(self):
-        if self._currentBuildSystem() == "cmake":
-            opt_err = self.cmake_options_editor.validate()
-            if opt_err:
-                QMessageBox.warning(self, "Invalid CMake Options", opt_err)
+        form = self._currentForm()
+        if hasattr(form, "validate"):
+            err = form.validate()
+            if err:
+                QMessageBox.warning(self, "Validation Error", err)
                 return
         self.accept()
 
+    # ------------------------------------------------------------------
+    # Helpers
+    # ------------------------------------------------------------------
+
     def _currentBuildSystem(self) -> str:
         return self.combo_build_system.currentData()
+
+    def _currentForm(self) -> QWidget:
+        return self._form_map[self._currentBuildSystem()][1]
 
     # ------------------------------------------------------------------
     def loadFromNode(self, node: NodeItem):
         self.edit_node_name.setText(node.title())
         self.edit_node_project_path.setText(node.projectPath())
 
-        # Set build system combo
+        # Build system combo
         bs_key = node.buildSystem()
         for i in range(self.combo_build_system.count()):
             if self.combo_build_system.itemData(i) == bs_key:
                 self.combo_build_system.setCurrentIndex(i)
                 break
 
-        self.cmake_options_editor.set_options(node.cmakeOptions())
-        self.build_settings_form.load_from_settings(node.buildSettings())
-        self.custom_commands_form.load_from(node.customCommands())
+        # Load ALL forms so switching build system keeps data intact
+        for name, (_idx, form) in self._form_map.items():
+            if hasattr(form, "load_from_node"):
+                form.load_from_node(node)
 
         self.edit_py_before.setPlainText(node.codeBeforeBuild())
         self.edit_py_after.setPlainText(node.codeAfterInstall())
@@ -142,11 +147,10 @@ class NodePropertiesDialog(QDialog):
         node.setProjectPath(self.edit_node_project_path.text().strip())
         node.setBuildSystem(self._currentBuildSystem())
 
-        if self._currentBuildSystem() == "cmake":
-            node.setCMakeOptions(self.cmake_options_editor.get_options())
-            node.setBuildSettings(self.build_settings_form.to_settings())
-        else:
-            node.setCustomCommands(self.custom_commands_form.to_commands())
+        # Delegate to the active strategy form
+        form = self._currentForm()
+        if hasattr(form, "apply_to_node"):
+            form.apply_to_node(node)
 
         node.setCodeBeforeBuild(self.edit_py_before.toPlainText())
         node.setCodeAfterInstall(self.edit_py_after.toPlainText())

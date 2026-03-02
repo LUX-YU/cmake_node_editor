@@ -1,5 +1,9 @@
 """
-Batch Edit Dialog — uses shared ``BuildSettingsForm`` and ``CMakeOptionsEditor``.
+Batch Edit Dialog — **strategy-driven** layout.
+
+Detects whether all selected nodes share a common build system.
+If so, shows the strategy-specific form.  If mixed, only the shared fields
+(pre-build / post-install scripts) are editable.
 """
 
 from PyQt6.QtCore import Qt
@@ -10,10 +14,8 @@ from PyQt6.QtWidgets import (
     QSplitter,
 )
 
-from ..models.data_classes import BuildSettings
 from ..views.graphics_items import NodeItem
-from .widgets.build_settings_form import BuildSettingsForm
-from .widgets.cmake_options_editor import CMakeOptionsEditor
+from ..services.build_strategies import get_strategy
 
 
 class BatchEditDialog(QDialog):
@@ -25,9 +27,14 @@ class BatchEditDialog(QDialog):
         self.setWindowTitle("Batch Edit Nodes")
         self.resize(600, 700)
 
+        # Determine common build system (None if mixed)
+        systems = {n.buildSystem() for n in nodes}
+        self._common_bs: str | None = systems.pop() if len(systems) == 1 else None
+        self._strategy_form: QWidget | None = None
+
         self._buildUI()
         if nodes:
-            self.loadFromNode(nodes[0])
+            self._loadFromNode(nodes[0])
 
     # ------------------------------------------------------------------
     def _buildUI(self):
@@ -57,15 +64,21 @@ class BatchEditDialog(QDialog):
         details_widget = QWidget()
         details_layout = QVBoxLayout(details_widget)
 
-        # CMake options (shared widget)
-        self.cmake_options_editor = CMakeOptionsEditor()
-        details_layout.addWidget(self.cmake_options_editor)
+        # Strategy-specific form (or info label if mixed)
+        if self._common_bs:
+            strategy = get_strategy(self._common_bs)
+            details_layout.addWidget(
+                QLabel(f"Build System: <b>{strategy.label}</b>")
+            )
+            self._strategy_form = strategy.create_properties_form()
+            details_layout.addWidget(self._strategy_form)
+        else:
+            details_layout.addWidget(
+                QLabel("<i>Nodes have mixed build systems — only shared fields "
+                       "are editable.</i>")
+            )
 
-        # Build settings (shared widget)
-        self.build_settings_form = BuildSettingsForm()
-        details_layout.addWidget(self.build_settings_form)
-
-        # Scripts
+        # Shared scripts
         details_layout.addWidget(QLabel("Pre-Build Script (py_code_before_build):"))
         self.edit_py_before = QPlainTextEdit()
         details_layout.addWidget(self.edit_py_before)
@@ -88,20 +101,20 @@ class BatchEditDialog(QDialog):
 
     # ------------------------------------------------------------------
     def _onAccept(self):
-        opt_err = self.cmake_options_editor.validate()
-        if opt_err:
-            QMessageBox.warning(self, "Invalid CMake Options", opt_err)
-            return
+        if self._strategy_form and hasattr(self._strategy_form, "validate"):
+            err = self._strategy_form.validate()
+            if err:
+                QMessageBox.warning(self, "Validation Error", err)
+                return
         self.accept()
 
-    # ------------------------------------------------------------------
     def _onSelectAll(self):
         for i in range(self.list_nodes.count()):
             self.list_nodes.item(i).setCheckState(Qt.CheckState.Checked)
 
-    def loadFromNode(self, node: NodeItem):
-        self.cmake_options_editor.set_options(node.cmakeOptions())
-        self.build_settings_form.load_from_settings(node.buildSettings())
+    def _loadFromNode(self, node: NodeItem):
+        if self._strategy_form and hasattr(self._strategy_form, "load_from_node"):
+            self._strategy_form.load_from_node(node)
         self.edit_py_before.setPlainText(node.codeBeforeBuild())
         self.edit_py_after.setPlainText(node.codeAfterInstall())
 
@@ -118,12 +131,9 @@ class BatchEditDialog(QDialog):
             QMessageBox.warning(self, "Warning", "No nodes selected.")
             return False
 
-        new_opts = self.cmake_options_editor.get_options()
-        bs = self.build_settings_form.to_settings()
-
         for node in selected:
-            node.setCMakeOptions(new_opts)
-            node.setBuildSettings(bs)
+            if self._strategy_form and hasattr(self._strategy_form, "apply_to_node"):
+                self._strategy_form.apply_to_node(node)
             node.setCodeBeforeBuild(self.edit_py_before.toPlainText())
             node.setCodeAfterInstall(self.edit_py_after.toPlainText())
         return True
