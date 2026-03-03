@@ -1,0 +1,20 @@
+[build-system]
+requires = ["setuptools>=64", "setuptools-scm"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "cmake_node_editor"
+version = "0.1.0"
+description = "A node-based visual editor for orchestrating CMake project builds"
+requires-python = ">=3.10"
+dependencies = ["PyQt6"]
+
+[project.scripts]
+cmake-node-cli = "cmake_node_editor.cli:main"
+
+[project.gui-scripts]
+cmake-node-editor = "cmake_node_editor.main:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+include = ["cmake_node_editor*"]
