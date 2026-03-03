@@ -80,6 +80,7 @@ def build_project_commands(
     end_index: int | None = None,
     start_node_id: int | None = None,
     only_first: bool = False,
+    build_type_override: str | None = None,
 ) -> ProjectCommands | str:
     """
     Assemble :class:`ProjectCommands` for the given *stage*.
@@ -96,6 +97,9 @@ def build_project_commands(
         Stored as metadata in the resulting ``ProjectCommands``.
     only_first : bool
         If *True*, include only the first node in the range.
+    build_type_override : str | None
+        If set, overrides every node's ``build_type`` for path
+        resolution and command generation.
 
     Returns
     -------
@@ -117,7 +121,7 @@ def build_project_commands(
 
     for node_obj in nodes_slice:
         bs = node_obj.buildSettings()
-        build_type = bs.build_type
+        build_type = build_type_override or bs.build_type
         project_name = node_obj.title()
         safe_project_name = _sanitize_name(project_name)
         project_dir = node_obj.projectPath()

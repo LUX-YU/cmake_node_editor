@@ -19,6 +19,7 @@ from PyQt6.QtWidgets import (
     QPlainTextEdit, QMessageBox,
     QFileDialog, QProgressBar,
     QListWidget, QListWidgetItem, QDialog,
+    QComboBox, QLabel, QToolBar,
 )
 
 from .editor_context import EditorContext
@@ -33,7 +34,7 @@ from .dialogs.settings_dialog import SettingsDialog
 from .dialogs.node_properties_dialog import NodePropertiesDialog
 from .dialogs.batch_edit_dialog import BatchEditDialog
 from .dialogs.node_range_dialog import NodeRangeDialog
-from .constants import WINDOW_WIDTH, WINDOW_HEIGHT, WINDOW_TITLE
+from .constants import WINDOW_WIDTH, WINDOW_HEIGHT, WINDOW_TITLE, BUILD_TYPES
 
 
 class NodeEditorWindow(QMainWindow):
@@ -61,6 +62,9 @@ class NodeEditorWindow(QMainWindow):
         # Docks
         self._initBuildOutputDock()
         self._initTopologyDock()
+
+        # Global build type toolbar
+        self._initBuildTypeToolbar()
 
         # Action registry — declarative menus
         self._registry = ActionRegistry()
@@ -113,6 +117,44 @@ class NodeEditorWindow(QMainWindow):
         self.topology_view.itemClicked.connect(self._onInspectorItemClicked)
         self.dock_topology.setWidget(self.topology_view)
         self.addDockWidget(Qt.DockWidgetArea.LeftDockWidgetArea, self.dock_topology)
+
+    # ----------------------------------------------------------------
+    # Global Build Type toolbar
+    # ----------------------------------------------------------------
+
+    def _initBuildTypeToolbar(self):
+        toolbar = QToolBar("Build Type", self)
+        toolbar.setObjectName("BuildTypeToolbar")
+        toolbar.setMovable(False)
+
+        toolbar.addWidget(QLabel("  Build Type: "))
+        self._combo_global_bt = QComboBox()
+        self._combo_global_bt.addItem("(per-node)", "")
+        for bt in BUILD_TYPES:
+            self._combo_global_bt.addItem(bt, bt)
+        self._combo_global_bt.currentIndexChanged.connect(self._onGlobalBuildTypeChanged)
+        toolbar.addWidget(self._combo_global_bt)
+
+        self.addToolBar(Qt.ToolBarArea.TopToolBarArea, toolbar)
+
+    def _onGlobalBuildTypeChanged(self, _index: int):
+        val = self._combo_global_bt.currentData()
+        self.ctx.global_build_type = val or None
+
+    def _syncBuildTypeCombo(self):
+        """Sync the combo box to the current ``ctx.global_build_type``."""
+        gbt = self.ctx.global_build_type or ""
+        idx = self._combo_global_bt.findData(gbt)
+        if idx >= 0:
+            self._combo_global_bt.blockSignals(True)
+            self._combo_global_bt.setCurrentIndex(idx)
+            self._combo_global_bt.blockSignals(False)
+
+    def _applyGlobalCfg(self, global_cfg: dict):
+        """Apply ``global`` section from a loaded project JSON."""
+        bt = global_cfg.get("build_type", None)
+        self.ctx.global_build_type = bt if bt else None
+        self._syncBuildTypeCombo()
 
     # ----------------------------------------------------------------
     # Action registration (replaces hard-coded _initMenu)
@@ -236,6 +278,7 @@ class NodeEditorWindow(QMainWindow):
             end_index=len(ordered_nodes),
             start_node_id=ordered_nodes[0].id() if ordered_nodes else -1,
             only_first=False,
+            build_type_override=self.ctx.global_build_type,
         )
         if isinstance(result, str):
             QMessageBox.critical(self, "Error", result)
@@ -292,7 +335,9 @@ class NodeEditorWindow(QMainWindow):
     def _onQuickSave(self):
         """Save to the current file; fall back to Save As if no path yet."""
         if self.ctx.current_file:
-            err = self.scene.saveProjectToJson(self.ctx.current_file, None)
+            err = self.scene.saveProjectToJson(
+                self.ctx.current_file, None, self.ctx.global_build_type,
+            )
             if err:
                 QMessageBox.critical(self, "Error", err)
             else:
@@ -306,7 +351,7 @@ class NodeEditorWindow(QMainWindow):
         filepath, _ = QFileDialog.getSaveFileName(self, "Save Project", default_dir, "JSON Files (*.json)")
         if not filepath:
             return
-        err = self.scene.saveProjectToJson(filepath, None)
+        err = self.scene.saveProjectToJson(filepath, None, self.ctx.global_build_type)
         if err:
             QMessageBox.critical(self, "Error", err)
         else:
@@ -319,9 +364,10 @@ class NodeEditorWindow(QMainWindow):
         filepath, _ = QFileDialog.getOpenFileName(self, "Load Project", default_dir, "JSON Files (*.json)")
         if not filepath:
             return
-        self.scene.loadProjectFromJson(filepath)
+        global_cfg = self.scene.loadProjectFromJson(filepath)
         self.ctx.current_file = filepath
         self._undo_stack.clear()
+        self._applyGlobalCfg(global_cfg)
         self._updateTitle()
         QMessageBox.information(self, "Info", "Project loaded!")
         self.updateTopologyView()
@@ -360,9 +406,10 @@ class NodeEditorWindow(QMainWindow):
         last = s.value("last_project", "")
         if last and os.path.isfile(last):
             try:
-                self.scene.loadProjectFromJson(last)
+                global_cfg = self.scene.loadProjectFromJson(last)
                 self.ctx.current_file = last
                 self._undo_stack.clear()
+                self._applyGlobalCfg(global_cfg)
                 self.updateTopologyView()
                 self.statusBar().showMessage(f"Restored: {last}", 5000)
             except Exception as exc:
@@ -577,6 +624,7 @@ class NodeEditorWindow(QMainWindow):
             end_index=end_index,
             start_node_id=start_id,
             only_first=only_first,
+            build_type_override=self.ctx.global_build_type,
         )
         if isinstance(result, str):
             QMessageBox.critical(self, "Error", result)

@@ -16,14 +16,24 @@ if TYPE_CHECKING:
     from ..views.graphics_items import NodeItem, Edge
 
 
-def save_project(filepath: str, nodes: list["NodeItem"], edges: list["Edge"],
-                 start_node_id: int | None = None) -> str | None:
+def save_project(
+    filepath: str,
+    nodes: list["NodeItem"],
+    edges: list["Edge"],
+    start_node_id: int | None = None,
+    global_build_type: str | None = None,
+) -> str | None:
     """Persist the current graph to a JSON file.
 
     Returns *None* on success or an error message string on failure.
     """
+    global_section: dict = {}
+    if start_node_id is not None:
+        global_section["start_node_id"] = start_node_id
+    if global_build_type:
+        global_section["build_type"] = global_build_type
     data = {
-        "global": {"start_node_id": start_node_id} if start_node_id is not None else {},
+        "global": global_section,
         "nodes": [asdict(node.nodeData()) for node in nodes],
         "edges": [asdict(edge.edgeData()) for edge in edges],
     }

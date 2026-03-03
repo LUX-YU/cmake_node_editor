@@ -204,6 +204,7 @@ def headless_build(
     only_first: bool = False,
     verbose: bool = True,
     load_vcvars: bool = True,
+    build_type_override: str | None = None,
 ) -> bool:
     """
     Load *filepath*, topo-sort, generate commands, execute synchronously.
@@ -226,6 +227,10 @@ def headless_build(
 
     # Load project
     _global_cfg, node_datas, edge_dicts = load_project(filepath)
+
+    # If no explicit override, check project-level global
+    if build_type_override is None:
+        build_type_override = _global_cfg.get("build_type", None) or None
 
     # Topo sort
     sorted_datas = _topo_sort(node_datas, edge_dicts)
@@ -269,6 +274,7 @@ def headless_build(
         end_index=end_index,
         start_node_id=start_node_id,
         only_first=only_first,
+        build_type_override=build_type_override,
     )
     if isinstance(result, str):
         print(f"[CLI] ERROR: {result}", file=sys.stderr)

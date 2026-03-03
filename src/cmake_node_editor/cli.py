@@ -68,6 +68,11 @@ def _build_parser() -> argparse.ArgumentParser:
         "-q", "--quiet", action="store_true",
         help="Suppress informational output; only print errors.",
     )
+    p_build.add_argument(
+        "--build-type", "-bt",
+        default=None, metavar="TYPE",
+        help="Override build type for all nodes (e.g. Debug, Release).",
+    )
 
     return parser
 
@@ -98,6 +103,7 @@ def main(argv: list[str] | None = None) -> int:
             only_first=args.only_first,
             verbose=not args.quiet,
             load_vcvars=not args.no_vcvars,
+            build_type_override=args.build_type,
         )
         return 0 if ok else 1
 

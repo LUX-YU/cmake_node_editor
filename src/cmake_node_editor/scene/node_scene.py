@@ -206,8 +206,16 @@ class NodeScene(QGraphicsScene):
 
     # -- Serialization --
 
-    def saveProjectToJson(self, filepath: str, start_node_id: int | None = None) -> str | None:
-        return save_project(filepath, self._model.nodes, self._model.edges, start_node_id)
+    def saveProjectToJson(
+        self,
+        filepath: str,
+        start_node_id: int | None = None,
+        global_build_type: str | None = None,
+    ) -> str | None:
+        return save_project(
+            filepath, self._model.nodes, self._model.edges,
+            start_node_id, global_build_type,
+        )
 
     def loadProjectFromJson(self, filepath: str) -> dict:
         global_cfg, node_data_list, edge_dicts = load_project(filepath)
