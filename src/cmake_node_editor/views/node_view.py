@@ -7,6 +7,7 @@ Extracted from the monolithic ``node_editor_window.py``.
 from __future__ import annotations
 
 import os
+import re
 import subprocess
 
 from PyQt6.QtCore import Qt, QPointF, pyqtSignal
@@ -101,6 +102,8 @@ class NodeView(QGraphicsView):
             act_gen_to_deps = menu.addAction("Generate To This (deps only)")
             menu.addSeparator()
             act_open_dir = menu.addAction("Open Project Directory")
+            act_open_build = menu.addAction("Open Build Directory")
+            act_open_install = menu.addAction("Open Install Directory")
             # -- Open in Editor submenu --
             editor_actions = self._buildEditorMenu(menu, item.projectPath())
             menu.addSeparator()
@@ -111,12 +114,15 @@ class NodeView(QGraphicsView):
             if action == act_prop and ctx:
                 ctx.openPropertiesRequested.emit(item)
             elif action == act_open_dir:
-                proj_dir = item.projectPath()
-                if proj_dir and os.path.isdir(proj_dir):
-                    from PyQt6.QtCore import QUrl
-                    QDesktopServices.openUrl(QUrl.fromLocalFile(os.path.abspath(proj_dir)))
-                else:
-                    QMessageBox.warning(self, "Warning", "Invalid project directory")
+                self._openFolder(item.projectPath(), "project directory")
+            elif action == act_open_build:
+                self._openFolder(
+                    self._resolveNodeBuildDir(item, ctx), "build directory",
+                )
+            elif action == act_open_install:
+                self._openFolder(
+                    self._resolveNodeInstallDir(item, ctx), "install directory",
+                )
             elif action in editor_actions:
                 self._launchEditor(editor_actions[action], item.projectPath())
             elif ctx:
@@ -194,6 +200,37 @@ class NodeView(QGraphicsView):
                                  creationflags=getattr(subprocess, 'DETACHED_PROCESS', 0))
             except OSError as e:
                 QMessageBox.warning(None, "Error", f"Failed to launch editor:\n{e}")
+
+    # -- Open folder helpers --
+
+    @staticmethod
+    def _openFolder(path: str, label: str) -> None:
+        """Open *path* in the system file manager, warn if it doesn't exist."""
+        from PyQt6.QtCore import QUrl
+        if path and os.path.isdir(path):
+            QDesktopServices.openUrl(QUrl.fromLocalFile(path))
+        else:
+            QMessageBox.warning(
+                None, "Not Found",
+                f"The {label} does not exist yet:\n{path}",
+            )
+
+    @staticmethod
+    def _resolveNodeBuildDir(node: NodeItem, ctx) -> str:
+        bs = node.buildSettings()
+        build_type = bs.build_type
+        if ctx and getattr(ctx, "global_build_type", None):
+            build_type = ctx.global_build_type
+        safe_name = re.sub(r"[^\w\-.]", "_", node.title())
+        return os.path.join(bs.build_dir.format(build_type=build_type), safe_name)
+
+    @staticmethod
+    def _resolveNodeInstallDir(node: NodeItem, ctx) -> str:
+        bs = node.buildSettings()
+        build_type = bs.build_type
+        if ctx and getattr(ctx, "global_build_type", None):
+            build_type = ctx.global_build_type
+        return bs.install_dir.format(build_type=build_type)
 
     # -- Delete key --
 
