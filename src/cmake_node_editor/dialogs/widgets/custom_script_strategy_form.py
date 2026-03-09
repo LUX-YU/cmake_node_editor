@@ -2,7 +2,7 @@
 Strategy-specific properties form for **Custom Script** nodes.
 
 Wraps :class:`CustomCommandsForm` and a minimal :class:`BuildSettingsForm`
-showing only the generic fields (build_dir, install_dir, build_type).
+showing only the generic fields (build_dir, install_dir).
 Implements the ``load_from_node`` / ``apply_to_node`` protocol expected by
 :class:`NodePropertiesDialog`.
 """
@@ -11,10 +11,10 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
-from PyQt6.QtWidgets import QWidget, QVBoxLayout, QFormLayout, QLineEdit, QComboBox
+from PyQt6.QtWidgets import QWidget, QVBoxLayout, QFormLayout, QLineEdit
 
 from ...models.data_classes import BuildSettings
-from ...constants import DEFAULT_BUILD_DIR, DEFAULT_INSTALL_DIR, BUILD_TYPES
+from ...constants import DEFAULT_BUILD_DIR, DEFAULT_INSTALL_DIR, DEFAULT_BUILD_TYPE
 from .custom_commands_form import CustomCommandsForm
 
 if TYPE_CHECKING:
@@ -26,6 +26,7 @@ class CustomScriptStrategyForm(QWidget):
 
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
+        self._original_build_type = DEFAULT_BUILD_TYPE
 
         layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
@@ -34,10 +35,6 @@ class CustomScriptStrategyForm(QWidget):
         path_form = QFormLayout()
         self.edit_build_dir = QLineEdit(DEFAULT_BUILD_DIR)
         path_form.addRow("Build Directory:", self.edit_build_dir)
-
-        self.combo_build_type = QComboBox()
-        self.combo_build_type.addItems(BUILD_TYPES)
-        path_form.addRow("Build Type:", self.combo_build_type)
 
         self.edit_install_dir = QLineEdit(DEFAULT_INSTALL_DIR)
         path_form.addRow("Install Directory:", self.edit_install_dir)
@@ -54,12 +51,8 @@ class CustomScriptStrategyForm(QWidget):
 
     def load_from_node(self, node: "NodeItem") -> None:
         bs = node.buildSettings()
+        self._original_build_type = bs.build_type
         self.edit_build_dir.setText(bs.build_dir)
-        idx = self.combo_build_type.findText(bs.build_type)
-        if idx >= 0:
-            self.combo_build_type.setCurrentIndex(idx)
-        else:
-            self.combo_build_type.setCurrentText(bs.build_type)
         self.edit_install_dir.setText(bs.install_dir)
         self.custom_commands_form.load_from(node.customCommands())
 
@@ -69,7 +62,7 @@ class CustomScriptStrategyForm(QWidget):
         updated_bs = BuildSettings(
             build_dir=self.edit_build_dir.text().strip(),
             install_dir=self.edit_install_dir.text().strip(),
-            build_type=self.combo_build_type.currentText(),
+            build_type=self._original_build_type,
             prefix_path=bs.prefix_path,
             toolchain_file=bs.toolchain_file,
             generator=bs.generator,

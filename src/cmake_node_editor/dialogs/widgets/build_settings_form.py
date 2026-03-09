@@ -13,7 +13,7 @@ from PyQt6.QtWidgets import (
 
 from ...models.data_classes import BuildSettings
 from ...constants import (
-    DEFAULT_BUILD_DIR, DEFAULT_INSTALL_DIR, BUILD_TYPES, GENERATORS,
+    DEFAULT_BUILD_DIR, DEFAULT_INSTALL_DIR, DEFAULT_BUILD_TYPE, GENERATORS,
 )
 
 
@@ -22,16 +22,13 @@ class BuildSettingsForm(QWidget):
 
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
+        self._original_build_type = DEFAULT_BUILD_TYPE
 
         form = QFormLayout(self)
         form.setContentsMargins(0, 0, 0, 0)
 
         self.edit_build_dir = QLineEdit(DEFAULT_BUILD_DIR)
         form.addRow("Build Directory:", self.edit_build_dir)
-
-        self.combo_build_type = QComboBox()
-        self.combo_build_type.addItems(BUILD_TYPES)
-        form.addRow("Build Type:", self.combo_build_type)
 
         self.edit_install_dir = QLineEdit(DEFAULT_INSTALL_DIR)
         form.addRow("Install Directory:", self.edit_install_dir)
@@ -58,14 +55,8 @@ class BuildSettingsForm(QWidget):
 
     def load_from_settings(self, bs: BuildSettings) -> None:
         """Populate the form from a ``BuildSettings`` instance."""
+        self._original_build_type = bs.build_type
         self.edit_build_dir.setText(bs.build_dir)
-
-        idx_bt = self.combo_build_type.findText(bs.build_type)
-        if idx_bt >= 0:
-            self.combo_build_type.setCurrentIndex(idx_bt)
-        else:
-            self.combo_build_type.setCurrentText(bs.build_type)
-
         self.edit_install_dir.setText(bs.install_dir)
         self.edit_prefix_path.setText(bs.prefix_path)
         self.edit_toolchain.setText(bs.toolchain_file)
@@ -92,7 +83,7 @@ class BuildSettingsForm(QWidget):
         return BuildSettings(
             build_dir=self.edit_build_dir.text().strip(),
             install_dir=self.edit_install_dir.text().strip(),
-            build_type=self.combo_build_type.currentText(),
+            build_type=self._original_build_type,
             prefix_path=self.edit_prefix_path.text().strip(),
             toolchain_file=self.edit_toolchain.text().strip(),
             generator=generator,

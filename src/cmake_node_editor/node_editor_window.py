@@ -129,7 +129,6 @@ class NodeEditorWindow(QMainWindow):
 
         toolbar.addWidget(QLabel("  Build Type: "))
         self._combo_global_bt = QComboBox()
-        self._combo_global_bt.addItem("(per-node)", "")
         for bt in BUILD_TYPES:
             self._combo_global_bt.addItem(bt, bt)
         self._combo_global_bt.currentIndexChanged.connect(self._onGlobalBuildTypeChanged)
@@ -138,12 +137,11 @@ class NodeEditorWindow(QMainWindow):
         self.addToolBar(Qt.ToolBarArea.TopToolBarArea, toolbar)
 
     def _onGlobalBuildTypeChanged(self, _index: int):
-        val = self._combo_global_bt.currentData()
-        self.ctx.global_build_type = val or None
+        self.ctx.global_build_type = self._combo_global_bt.currentData()
 
     def _syncBuildTypeCombo(self):
         """Sync the combo box to the current ``ctx.global_build_type``."""
-        gbt = self.ctx.global_build_type or ""
+        gbt = self.ctx.global_build_type
         idx = self._combo_global_bt.findData(gbt)
         if idx >= 0:
             self._combo_global_bt.blockSignals(True)
@@ -152,8 +150,8 @@ class NodeEditorWindow(QMainWindow):
 
     def _applyGlobalCfg(self, global_cfg: dict):
         """Apply ``global`` section from a loaded project JSON."""
-        bt = global_cfg.get("build_type", None)
-        self.ctx.global_build_type = bt if bt else None
+        from .constants import DEFAULT_BUILD_TYPE
+        self.ctx.global_build_type = global_cfg.get("build_type") or DEFAULT_BUILD_TYPE
         self._syncBuildTypeCombo()
 
     # ----------------------------------------------------------------

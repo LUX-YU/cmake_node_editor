@@ -218,18 +218,14 @@ class NodeView(QGraphicsView):
     @staticmethod
     def _resolveNodeBuildDir(node: NodeItem, ctx) -> str:
         bs = node.buildSettings()
-        build_type = bs.build_type
-        if ctx and getattr(ctx, "global_build_type", None):
-            build_type = ctx.global_build_type
+        build_type = ctx.global_build_type if ctx else bs.build_type
         safe_name = re.sub(r"[^\w\-.]", "_", node.title())
         return os.path.join(bs.build_dir.format(build_type=build_type), safe_name)
 
     @staticmethod
     def _resolveNodeInstallDir(node: NodeItem, ctx) -> str:
         bs = node.buildSettings()
-        build_type = bs.build_type
-        if ctx and getattr(ctx, "global_build_type", None):
-            build_type = ctx.global_build_type
+        build_type = ctx.global_build_type if ctx else bs.build_type
         return bs.install_dir.format(build_type=build_type)
 
     # -- Delete key --

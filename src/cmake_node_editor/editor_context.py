@@ -71,7 +71,7 @@ class EditorContext(QObject):
         self.building: bool = False
         self.current_file: str | None = None
         self.current_node: object | None = None   # NodeItem | None
-        self.global_build_type: str | None = None  # None = use per-node setting
+        self.global_build_type: str = "Debug"     # always set; toolbar default
 
     # ------------------------------------------------------------------
     # Undoable convenience methods — used by views instead of touching

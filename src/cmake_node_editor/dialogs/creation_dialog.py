@@ -29,7 +29,6 @@ from ..services.build_strategies import (
 _ALL_BS_FIELDS: list[tuple[str, str]] = [
     ("build_dir", "Build Directory"),
     ("install_dir", "Install Directory"),
-    ("build_type", "Build Type"),
     ("prefix_path", "PREFIX_PATH"),
     ("toolchain_file", "Toolchain File"),
     ("generator", "Generator"),
