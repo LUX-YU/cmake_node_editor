@@ -47,7 +47,7 @@ class CustomScriptStrategy(BuildStrategy):
     # BuildSettings metadata — only generic fields
     # ------------------------------------------------------------------
 
-    # relevant_build_setting_keys: inherits default ["build_dir", "install_dir", "build_type"]
+    # relevant_build_setting_keys: inherits default ["build_dir", "install_dir"]
 
     # ------------------------------------------------------------------
     # Inheritance
@@ -90,6 +90,7 @@ class CustomScriptStrategy(BuildStrategy):
         build_dir: str,
         install_dir: str,
         prefix_path: str,
+        build_type: str = "",
     ) -> list[CommandData]:
         commands: list[CommandData] = []
         project_name = node.title()

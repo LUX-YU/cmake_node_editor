@@ -53,7 +53,7 @@ class CMakeStrategy(BuildStrategy):
 
     def relevant_build_setting_keys(self) -> list[str]:
         return [
-            "build_dir", "install_dir", "build_type",
+            "build_dir", "install_dir",
             "prefix_path", "toolchain_file", "generator",
             "c_compiler", "cxx_compiler",
         ]
@@ -93,12 +93,14 @@ class CMakeStrategy(BuildStrategy):
         build_dir: str,
         install_dir: str,
         prefix_path: str,
+        build_type: str = "",
     ) -> list[CommandData]:
         commands: list[CommandData] = []
         project_name = node.title()
         project_dir = node.projectPath()
         bs = node.buildSettings()
-        build_type = bs.build_type
+        if not build_type:
+            build_type = bs.build_type
 
         # Pre-configure script
         if stage in ("configure", "all") and node.codeBeforeBuild().strip():

@@ -72,6 +72,7 @@ class BuildStrategy(ABC):
         build_dir: str,
         install_dir: str,
         prefix_path: str,
+        build_type: str = "",
     ) -> list[CommandData]:
         """Return :class:`CommandData` entries for the requested *stage*."""
 
@@ -86,7 +87,7 @@ class BuildStrategy(ABC):
         which inheritance checkboxes appear in the creation dialog.
         The default returns only the three universal fields.
         """
-        return ["build_dir", "install_dir", "build_type"]
+        return ["build_dir", "install_dir"]
 
     # ------------------------------------------------------------------
     # Inheritance / copy support

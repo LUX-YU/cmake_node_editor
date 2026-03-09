@@ -144,6 +144,7 @@ def build_project_commands(
 
         cmd_list = strategy.generate_commands(
             node_obj, stage, node_build_dir, node_install_dir, node_prefix_path,
+            build_type,
         )
 
         node_cmd = NodeCommands(
