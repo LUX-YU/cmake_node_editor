@@ -8,9 +8,12 @@ previously scattered across multiple files are collected here.
 # ---------------------------------------------------------------------------
 # Node rendering
 # ---------------------------------------------------------------------------
-NODE_WIDTH = 150
-NODE_HEIGHT = 60
-PIN_SIZE = 10
+NODE_WIDTH = 190
+NODE_HEIGHT = 82
+PIN_SIZE = 12          # diameter of the circular connector
+NODE_CORNER_RADIUS = 9
+NODE_HEADER_HEIGHT = 28
+NODE_GLOW_MARGIN = 12  # extra pixels around node bounding rect for glow
 
 # ---------------------------------------------------------------------------
 # Scene / Grid

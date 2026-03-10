@@ -1,17 +1,19 @@
 """
 Graphics items: Pin, Edge, and NodeItem.
 
-These are the core visual elements rendered on the :class:`NodeScene`.
-They were originally defined in the monolithic ``node_scene.py`` and
-have been extracted here for better separation of concerns.
+Cyberpunk dark theme — neon glow pins, gradient nodes, multi-pass glow edges.
 """
 
 from __future__ import annotations
 
 import math
+import os
 
 from PyQt6.QtCore import Qt, QRectF, QPointF
-from PyQt6.QtGui import QBrush, QPen, QPainterPath, QColor, QPolygonF
+from PyQt6.QtGui import (
+    QBrush, QPen, QPainterPath, QColor, QPolygonF,
+    QLinearGradient, QFont,
+)
 from PyQt6.QtWidgets import (
     QGraphicsRectItem, QGraphicsPathItem,
     QGraphicsItem, QGraphicsTextItem,
@@ -20,17 +22,28 @@ from PyQt6.QtWidgets import (
 from ..models.data_classes import NodeData, EdgeData, BuildSettings, CustomCommands
 from ..constants import (
     NODE_WIDTH, NODE_HEIGHT, PIN_SIZE,
+    NODE_CORNER_RADIUS, NODE_HEADER_HEIGHT, NODE_GLOW_MARGIN,
     DEFAULT_BUILD_DIR, DEFAULT_INSTALL_DIR, DEFAULT_BUILD_TYPE,
+)
+from ..theme import (
+    PIN_IN, PIN_OUT,
+    EDGE_NORMAL, EDGE_SELECTED, EDGE_TEMP,
+    NODE_BG_TOP, NODE_BG_BOT, NODE_HDR_TOP, NODE_HDR_BOT,
+    NODE_BORDER, NODE_BORDER_SEL, NODE_ACCENT, NODE_ACCENT_SEL,
+    TEXT_PRIMARY, TEXT_SECONDARY, TEXT_DIM,
+    ACCENT_CYAN, ACCENT_BLUE,
 )
 
 
 class Pin(QGraphicsRectItem):
     """
-    Connection endpoint on a node (input or output).
+    Circular neon connector on a node (input or output).
 
     Dragging a pin creates a temporary :class:`Edge` that the user can
     drop onto a compatible pin on another node.
     """
+
+    _GLOW = 5  # extra paint area around the pin for glow
 
     def __init__(self, parent_node: "NodeItem", is_output: bool = False):
         super().__init__(0, 0, PIN_SIZE, PIN_SIZE, parent_node)
@@ -38,13 +51,44 @@ class Pin(QGraphicsRectItem):
         self.is_output = is_output
         self.dragging_edge: Edge | None = None
 
-        self.setBrush(QBrush(Qt.GlobalColor.darkCyan if self.is_output else Qt.GlobalColor.darkGreen))
-        self.setPen(QPen(Qt.GlobalColor.black, 1))
+        # invisible rect — we draw everything in paint()
+        self.setBrush(QBrush())
+        self.setPen(QPen(Qt.PenStyle.NoPen))
         self.setFlags(
             QGraphicsItem.GraphicsItemFlag.ItemIsSelectable
             | QGraphicsItem.GraphicsItemFlag.ItemSendsScenePositionChanges
         )
-        self.setZValue(2)
+        self.setZValue(3)
+
+    def boundingRect(self) -> QRectF:
+        g = self._GLOW
+        return QRectF(-g, -g, PIN_SIZE + 2 * g, PIN_SIZE + 2 * g)
+
+    def paint(self, painter, option, widget=None):
+        base = PIN_OUT if self.is_output else PIN_IN
+        pin_rect = QRectF(0, 0, PIN_SIZE, PIN_SIZE)
+
+        painter.setRenderHint(painter.renderHints().Antialiasing, True)
+
+        # -- outer glow rings --
+        for extra, alpha in ((8, 0.12), (4, 0.25)):
+            glow = QColor(base)
+            glow.setAlphaF(alpha)
+            painter.setPen(QPen(glow, extra))
+            painter.setBrush(QBrush())
+            painter.drawEllipse(pin_rect)
+
+        # -- dark filled body --
+        painter.setPen(QPen(base, 1.5))
+        dark = QColor("#0a1020")
+        painter.setBrush(QBrush(dark))
+        painter.drawEllipse(pin_rect)
+
+        # -- bright inner dot --
+        inner = pin_rect.adjusted(3, 3, -3, -3)
+        painter.setPen(QPen(Qt.PenStyle.NoPen))
+        painter.setBrush(QBrush(base))
+        painter.drawEllipse(inner)
 
     def centerPos(self) -> QPointF:
         return self.sceneBoundingRect().center()
@@ -100,7 +144,10 @@ class Pin(QGraphicsRectItem):
 
 
 class Edge(QGraphicsPathItem):
-    """Bezier-curve connection between two :class:`Pin` instances."""
+    """Neon-glow bezier connection between two :class:`Pin` instances."""
+
+    ARROW_SIZE = 9   # pixels
+    _GLOW_W    = 12  # outermost glow pen width (for bounding rect margin)
 
     def __init__(self, source_pin: Pin | None = None,
                  target_pin: Pin | None = None, is_temp: bool = False):
@@ -112,59 +159,73 @@ class Edge(QGraphicsPathItem):
 
         self.setFlags(QGraphicsItem.GraphicsItemFlag.ItemIsSelectable)
         self.setZValue(1)
-        self.updateColor()
-
-    ARROW_SIZE = 8  # pixels
+        # set a placeholder pen for bounding-rect queries before first paint
+        self.setPen(QPen(EDGE_NORMAL, 2))
 
     def boundingRect(self):
-        """Expand the default path bounding rect to include the arrowhead."""
         base = super().boundingRect()
-        margin = self.ARROW_SIZE + self.pen().widthF()
+        margin = self.ARROW_SIZE + self._GLOW_W
         return base.adjusted(-margin, -margin, margin, margin)
 
-    def paint(self, painter, option, widget=None):
-        painter.setPen(self.pen())
-        painter.setBrush(Qt.BrushStyle.NoBrush)
-        painter.drawPath(self.path())
+    def _edge_color(self) -> QColor:
+        if self.is_temp:
+            return EDGE_TEMP
+        scene = self.scene()
+        base = scene.link_color if scene else EDGE_NORMAL
+        return EDGE_SELECTED if self.isSelected() else base
 
-        # Draw arrowhead at the target end
+    def paint(self, painter, option, widget=None):
         path = self.path()
         if path.isEmpty():
             return
-        percent = path.percentAtLength(path.length())
-        end_pt = path.pointAtPercent(percent)
-        # Get a point slightly before the end to compute direction
-        t_back = path.percentAtLength(max(0, path.length() - 1))
-        pre_pt = path.pointAtPercent(t_back)
+
+        base = self._edge_color()
+        painter.setBrush(QBrush())
+        painter.setRenderHint(painter.renderHints().Antialiasing, True)
+
+        # multi-pass glow effect
+        for width, alpha in ((12, 0.07), (6, 0.18), (3, 0.40), (1.5, 1.0)):
+            c = QColor(base)
+            c.setAlphaF(alpha)
+            painter.setPen(QPen(c, width))
+            painter.drawPath(path)
+
+        # -- arrowhead --
+        path_len = path.length()
+        if path_len < 1.0:
+            return
+        end_pt  = path.pointAtPercent(path.percentAtLength(path_len))
+        t_back  = path.percentAtLength(max(0.0, path_len - 2.0))
+        pre_pt  = path.pointAtPercent(t_back)
         dx = end_pt.x() - pre_pt.x()
         dy = end_pt.y() - pre_pt.y()
-        length = math.hypot(dx, dy)
-        if length < 1e-6:
+        dist = math.hypot(dx, dy)
+        if dist < 1e-6:
             return
-        # Unit direction vector
-        ux, uy = dx / length, dy / length
-        # Perpendicular
+        ux, uy = dx / dist, dy / dist
         px, py = -uy, ux
         s = self.ARROW_SIZE
         arrow = QPolygonF([
             end_pt,
-            QPointF(end_pt.x() - s * ux + s * 0.5 * px,
-                    end_pt.y() - s * uy + s * 0.5 * py),
-            QPointF(end_pt.x() - s * ux - s * 0.5 * px,
-                    end_pt.y() - s * uy - s * 0.5 * py),
+            QPointF(end_pt.x() - s * ux + s * 0.45 * px,
+                    end_pt.y() - s * uy + s * 0.45 * py),
+            QPointF(end_pt.x() - s * ux - s * 0.45 * px,
+                    end_pt.y() - s * uy - s * 0.45 * py),
         ])
-        painter.setBrush(self.pen().color())
+        # draw arrow glow
+        glow_a = QColor(base); glow_a.setAlphaF(0.30)
+        painter.setPen(QPen(glow_a, 3))
+        painter.setBrush(glow_a)
+        painter.drawPolygon(arrow)
+        # solid arrow core
+        painter.setPen(QPen(Qt.PenStyle.NoPen))
+        painter.setBrush(QBrush(base))
         painter.drawPolygon(arrow)
 
     def updateColor(self):
-        scene = self.scene()
-        base = scene.link_color if scene else QColor(Qt.GlobalColor.black)
-        if self.isSelected():
-            inv = QColor(255 - base.red(), 255 - base.green(), 255 - base.blue())
-            pen = QPen(inv, 3)
-        else:
-            pen = QPen(base, 2)
-        self.setPen(pen)
+        # keep the stored pen width consistent; actual color is applied in paint()
+        self.setPen(QPen(self._edge_color(), 2))
+        self.update()
 
     def itemChange(self, change, value):
         if change == QGraphicsItem.GraphicsItemChange.ItemSelectedHasChanged:
@@ -214,8 +275,8 @@ class NodeItem(QGraphicsRectItem):
     """
     Visual representation of a CMake project node.
 
-    Contains a title label, input/output :class:`Pin` instances, and a
-    :class:`NodeData` payload with all CMake configuration.
+    Dark-panel design: gradient body, coloured header strip,
+    neon border glow on selection.
     """
 
     def __init__(self, node_id: int = 0, title: str = "NewNode",
@@ -255,17 +316,129 @@ class NodeItem(QGraphicsRectItem):
             | QGraphicsItem.GraphicsItemFlag.ItemSendsGeometryChanges
         )
 
-        self.setBrush(QBrush(Qt.GlobalColor.lightGray))
-        self.setPen(QPen(Qt.GlobalColor.black, 2))
+        # invisible rect — drawn entirely via paint()
+        self.setBrush(QBrush())
+        self.setPen(QPen(Qt.PenStyle.NoPen))
         self.setZValue(0)
 
+        # Keep a hidden QGraphicsTextItem so that centerTitle() / updateTitle()
+        # keep working (text measurement), but we draw the actual text manually
+        # in paint() for drop-shadow support.
         self.text_item = QGraphicsTextItem(self._data.title, self)
-        self.text_item.setDefaultTextColor(Qt.GlobalColor.black)
+        title_font = QFont("Segoe UI", 10)
+        title_font.setBold(True)
+        title_font.setLetterSpacing(QFont.SpacingType.AbsoluteSpacing, 0.4)
+        self.text_item.setFont(title_font)
+        self.text_item.setDefaultTextColor(QColor(0, 0, 0, 0))  # fully transparent
         self.centerTitle()
 
         self.input_pin = Pin(self, is_output=False)
         self.output_pin = Pin(self, is_output=True)
         self.updatePinsPos()
+
+    # -- Custom drawing --
+
+    def boundingRect(self) -> QRectF:
+        g = NODE_GLOW_MARGIN
+        return self.rect().adjusted(-g, -g, g, g)
+
+    def shape(self) -> QPainterPath:
+        path = QPainterPath()
+        path.addRoundedRect(self.rect(), NODE_CORNER_RADIUS, NODE_CORNER_RADIUS)
+        return path
+
+    def paint(self, painter, option, widget=None):
+        rect   = self.rect()
+        r      = NODE_CORNER_RADIUS
+        is_sel = self.isSelected()
+
+        painter.setRenderHint(painter.renderHints().Antialiasing, True)
+
+        node_path = QPainterPath()
+        node_path.addRoundedRect(rect, r, r)
+
+        # ── selection glow ──
+        if is_sel:
+            for gw, ga in ((18, 0.06), (10, 0.15), (4, 0.35)):
+                gc = QColor(NODE_BORDER_SEL)
+                gc.setAlphaF(ga)
+                painter.setPen(QPen(gc, gw))
+                painter.setBrush(QBrush())
+                painter.drawPath(node_path)
+
+        # ── body gradient ──
+        body_grad = QLinearGradient(rect.topLeft(), rect.bottomLeft())
+        body_grad.setColorAt(0.0, NODE_BG_TOP)
+        body_grad.setColorAt(1.0, NODE_BG_BOT)
+        painter.setPen(QPen(Qt.PenStyle.NoPen))
+        painter.setBrush(QBrush(body_grad))
+        painter.drawPath(node_path)
+
+        # ── header strip (clipped to top) ──
+        painter.save()
+        painter.setClipRect(QRectF(rect.x(), rect.y(), rect.width(), NODE_HEADER_HEIGHT))
+        hdr_path = QPainterPath()
+        hdr_path.addRoundedRect(rect, r, r)
+        hdr_grad = QLinearGradient(
+            QPointF(rect.x(), rect.y()),
+            QPointF(rect.x(), rect.y() + NODE_HEADER_HEIGHT)
+        )
+        hdr_grad.setColorAt(0.0, NODE_HDR_TOP)
+        hdr_grad.setColorAt(1.0, NODE_HDR_BOT)
+        painter.setBrush(QBrush(hdr_grad))
+        painter.setPen(QPen(Qt.PenStyle.NoPen))
+        painter.drawPath(hdr_path)
+        painter.restore()
+
+        # ── header bottom accent line ──
+        accent = NODE_ACCENT_SEL if is_sel else NODE_ACCENT
+        ac = QColor(accent)
+        ac.setAlphaF(0.85 if is_sel else 0.55)
+        dy = rect.y() + NODE_HEADER_HEIGHT
+        painter.setPen(QPen(ac, 1))
+        painter.drawLine(
+            QPointF(rect.x() + r, dy),
+            QPointF(rect.x() + rect.width() - r, dy),
+        )
+
+        # ── body info text (build system + short path) ──
+        bs = self._data.build_system or "cmake"
+        raw_path = self._data.project_path or ""
+        short_path = os.path.basename(os.path.normpath(raw_path)) if raw_path else "\u2014"
+        info_text = f"{bs}  \u00b7  {short_path}"
+        body_rect = QRectF(
+            rect.x() + 6,
+            rect.y() + NODE_HEADER_HEIGHT + 2,
+            rect.width() - 12,
+            rect.height() - NODE_HEADER_HEIGHT - 4,
+        )
+        info_font = QFont("Segoe UI", 8)
+        painter.setFont(info_font)
+        painter.setPen(QPen(QColor(TEXT_SECONDARY)))
+        painter.drawText(body_rect, Qt.AlignmentFlag.AlignCenter, info_text)
+
+        # ── node border ──
+        border_col = NODE_BORDER_SEL if is_sel else NODE_BORDER
+        border_w   = 1.8 if is_sel else 1.2
+        painter.setPen(QPen(border_col, border_w))
+        painter.setBrush(QBrush())
+        painter.drawPath(node_path)
+
+        # ── title text with drop-shadow ──
+        title_font = QFont("Segoe UI", 10)
+        title_font.setBold(True)
+        painter.setFont(title_font)
+        trect = self.text_item.boundingRect()
+        tx = rect.x() + (rect.width() - trect.width()) / 2
+        ty = rect.y() + (NODE_HEADER_HEIGHT - trect.height()) / 2
+        title_rect = QRectF(tx, ty, trect.width(), trect.height())
+        # shadow pass
+        shadow_rect = title_rect.translated(1, 1)
+        painter.setPen(QPen(QColor(0, 0, 0, 140)))
+        painter.drawText(shadow_rect, Qt.AlignmentFlag.AlignCenter, self._data.title)
+        # main text
+        painter.setPen(QPen(QColor(TEXT_PRIMARY)))
+        painter.drawText(title_rect, Qt.AlignmentFlag.AlignCenter, self._data.title)
 
     # -- Events --
 
@@ -297,7 +470,7 @@ class NodeItem(QGraphicsRectItem):
         rect = self.rect()
         trect = self.text_item.boundingRect()
         cx = rect.x() + (rect.width() - trect.width()) / 2
-        cy = rect.y() + (rect.height() - trect.height()) / 2
+        cy = rect.y() + (NODE_HEADER_HEIGHT - trect.height()) / 2
         self.text_item.setPos(cx, cy)
 
     def updatePinsPos(self):
@@ -320,6 +493,7 @@ class NodeItem(QGraphicsRectItem):
 
     def setProjectPath(self, path_str: str):
         self._data.project_path = path_str
+        self.update()
 
     def setBuildSettings(self, bs: BuildSettings):
         self._data.build_settings = bs
@@ -332,6 +506,7 @@ class NodeItem(QGraphicsRectItem):
 
     def setBuildSystem(self, build_system: str):
         self._data.build_system = build_system
+        self.update()
 
     def setCustomCommands(self, cc: CustomCommands | None):
         self._data.custom_commands = cc

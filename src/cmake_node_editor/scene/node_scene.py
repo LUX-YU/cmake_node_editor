@@ -10,7 +10,7 @@ background grid drawing, link color).
 from __future__ import annotations
 
 from PyQt6.QtCore import Qt, QPointF, QLineF
-from PyQt6.QtGui import QPen, QColor
+from PyQt6.QtGui import QPen, QColor, QBrush
 from PyQt6.QtWidgets import QGraphicsScene
 
 from ..views.graphics_items import NodeItem, Edge, Pin
@@ -20,6 +20,12 @@ from ..scene.serialization import save_project, load_project
 from ..constants import (
     DEFAULT_GRID_OPACITY, GRID_SIZE,
 )
+from ..theme import GRID_BG, GRID_MINOR, GRID_MAJOR, EDGE_NORMAL
+
+
+# Keep a large logical canvas so background grid is always paintable,
+# even before any nodes exist.
+_DEFAULT_SCENE_HALF_EXTENT = 50_000
 
 
 class NodeScene(QGraphicsScene):
@@ -30,13 +36,20 @@ class NodeScene(QGraphicsScene):
 
     def __init__(self, parent=None):
         super().__init__(parent)
-        # Let Qt auto-compute scene rect from item bounding boxes
-        # by not setting a fixed scene rect.
+        # Without an explicit scene rect, Qt may keep an empty/tiny logical
+        # scene until items exist, which prevents full-canvas grid rendering.
+        self.setSceneRect(
+            -_DEFAULT_SCENE_HALF_EXTENT,
+            -_DEFAULT_SCENE_HALF_EXTENT,
+            _DEFAULT_SCENE_HALF_EXTENT * 2,
+            _DEFAULT_SCENE_HALF_EXTENT * 2,
+        )
 
         self._model = GraphModel()
         self._context = None            # set by EditorContext.setContext()
-        self.link_color = QColor(Qt.GlobalColor.black)
-        self.grid_opacity = DEFAULT_GRID_OPACITY
+        self.link_color = QColor(EDGE_NORMAL)
+        self.grid_opacity = 0.7         # default: visible
+        self.setBackgroundBrush(QBrush(GRID_BG))
 
     # -- Context accessor (replaces parent() / hasattr pattern) --
 
@@ -78,25 +91,45 @@ class NodeScene(QGraphicsScene):
     # -- Background grid --
 
     def drawBackground(self, painter, rect):
-        super().drawBackground(painter, rect)
+        # solid dark fill
+        painter.fillRect(rect, GRID_BG)
 
         left = int(rect.left()) - (int(rect.left()) % GRID_SIZE)
-        top = int(rect.top()) - (int(rect.top()) % GRID_SIZE)
+        top  = int(rect.top())  - (int(rect.top())  % GRID_SIZE)
+        MAJOR = GRID_SIZE * 5
 
-        painter.save()
-        color = QColor(Qt.GlobalColor.lightGray)
-        color.setAlphaF(self.grid_opacity)
-        painter.setPen(QPen(color, 1))
+        minor_lines = []
+        major_lines = []
 
         x = left
         while x < rect.right():
-            painter.drawLine(QLineF(x, rect.top(), x, rect.bottom()))
+            line = QLineF(x, rect.top(), x, rect.bottom())
+            (major_lines if x % MAJOR == 0 else minor_lines).append(line)
             x += GRID_SIZE
 
         y = top
         while y < rect.bottom():
-            painter.drawLine(QLineF(rect.left(), y, rect.right(), y))
+            line = QLineF(rect.left(), y, rect.right(), y)
+            (major_lines if y % MAJOR == 0 else minor_lines).append(line)
             y += GRID_SIZE
+
+        painter.save()
+
+        # minor grid
+        mc = QColor(GRID_MINOR)
+        mc.setAlphaF(self.grid_opacity)
+        minor_pen = QPen(mc, 1.0)
+        minor_pen.setCosmetic(True)
+        painter.setPen(minor_pen)
+        painter.drawLines(minor_lines)
+
+        # major grid
+        mj = QColor(GRID_MAJOR)
+        mj.setAlphaF(self.grid_opacity)
+        major_pen = QPen(mj, 1.5)
+        major_pen.setCosmetic(True)
+        painter.setPen(major_pen)
+        painter.drawLines(major_lines)
 
         painter.restore()
 
@@ -104,7 +137,8 @@ class NodeScene(QGraphicsScene):
 
     def setGridOpacity(self, value: float):
         self.grid_opacity = max(0.0, min(1.0, value))
-        self.update()
+        # Invalidate the entire background layer so slider changes always repaint.
+        self.invalidate(layers=QGraphicsScene.SceneLayer.BackgroundLayer)
 
     def gridOpacity(self) -> float:
         return self.grid_opacity

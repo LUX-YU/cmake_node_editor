@@ -10,7 +10,7 @@ import os
 import subprocess
 
 from PyQt6.QtCore import Qt, QPointF, pyqtSignal
-from PyQt6.QtGui import QPainter, QWheelEvent, QMouseEvent, QDesktopServices
+from PyQt6.QtGui import QPainter, QWheelEvent, QMouseEvent, QDesktopServices, QBrush, QColor
 from PyQt6.QtWidgets import QGraphicsView, QMenu, QMessageBox
 
 from ..views.graphics_items import NodeItem, Edge
@@ -27,13 +27,27 @@ class NodeView(QGraphicsView):
     def __init__(self, scene, parent=None):
         super().__init__(scene, parent)
         self.setRenderHints(
-            QPainter.RenderHint.Antialiasing | QPainter.RenderHint.SmoothPixmapTransform
+            QPainter.RenderHint.Antialiasing
+            | QPainter.RenderHint.SmoothPixmapTransform
+            | QPainter.RenderHint.TextAntialiasing
         )
+        # Keep background rendering deterministic across styles/platforms.
+        self.setCacheMode(QGraphicsView.CacheModeFlag.CacheNone)
+        self.setViewportUpdateMode(QGraphicsView.ViewportUpdateMode.FullViewportUpdate)
         self.setDragMode(QGraphicsView.DragMode.RubberBandDrag)
+        self.setBackgroundBrush(QBrush(QColor("#0d1117")))
         self._panning = False
         self._last_mouse_pos = None
         self._press_pos = None
         self.setContextMenuPolicy(Qt.ContextMenuPolicy.PreventContextMenu)
+
+    def drawBackground(self, painter: QPainter, rect):
+        """Always delegate background painting to the scene grid renderer."""
+        scene = self.scene()
+        if scene is not None:
+            scene.drawBackground(painter, rect)
+        else:
+            super().drawBackground(painter, rect)
 
     # -- Zoom --
 

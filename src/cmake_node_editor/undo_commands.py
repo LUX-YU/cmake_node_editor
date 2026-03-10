@@ -8,6 +8,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
+from PyQt6.QtCore import QPointF
 from PyQt6.QtGui import QUndoCommand
 
 if TYPE_CHECKING:
@@ -153,3 +154,32 @@ class RemoveEdgeCommand(QUndoCommand):
         dst = node_map.get(self._dst_node_id)
         if src and dst:
             self._scene.addEdge(src.output_pin, dst.input_pin)
+
+
+class MoveNodesCommand(QUndoCommand):
+    """Undoable command: move one or more nodes to new positions.
+
+    Parameters
+    ----------
+    old_new:
+        Mapping of ``NodeItem`` → ``(old_pos, new_pos)`` as ``QPointF`` pairs.
+    description:
+        Human-readable name shown in the undo stack.
+    """
+
+    def __init__(self, old_new: "dict", description: str = "Move Nodes"):
+        super().__init__(description)
+        # Store as list of (node, old_pos, new_pos) to avoid holding live refs
+        # in a dict that could be GC'd while the command lives in the stack.
+        self._moves = [
+            (node, QPointF(old), QPointF(new))
+            for node, (old, new) in old_new.items()
+        ]
+
+    def redo(self):
+        for node, _old, new in self._moves:
+            node.setPos(new)
+
+    def undo(self):
+        for node, old, _new in self._moves:
+            node.setPos(old)

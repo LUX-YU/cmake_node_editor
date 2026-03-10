@@ -19,7 +19,7 @@ from PyQt6.QtWidgets import (
     QPlainTextEdit, QMessageBox,
     QFileDialog, QProgressBar,
     QListWidget, QListWidgetItem, QDialog,
-    QComboBox, QLabel, QToolBar,
+    QComboBox, QLabel, QToolBar, QSlider, QToolButton,
 )
 
 from .editor_context import EditorContext
@@ -35,7 +35,7 @@ from .dialogs.node_properties_dialog import NodePropertiesDialog
 from .dialogs.batch_edit_dialog import BatchEditDialog
 from .dialogs.node_range_dialog import NodeRangeDialog
 from .dialogs.path_variables_dialog import PathVariablesDialog
-from .constants import WINDOW_WIDTH, WINDOW_HEIGHT, WINDOW_TITLE, BUILD_TYPES
+from .constants import WINDOW_WIDTH, WINDOW_HEIGHT, WINDOW_TITLE, BUILD_TYPES, GRID_SIZE
 
 
 class NodeEditorWindow(QMainWindow):
@@ -128,12 +128,51 @@ class NodeEditorWindow(QMainWindow):
         toolbar.setObjectName("BuildTypeToolbar")
         toolbar.setMovable(False)
 
+        # Build Type
         toolbar.addWidget(QLabel("  Build Type: "))
         self._combo_global_bt = QComboBox()
         for bt in BUILD_TYPES:
             self._combo_global_bt.addItem(bt, bt)
         self._combo_global_bt.currentIndexChanged.connect(self._onGlobalBuildTypeChanged)
         toolbar.addWidget(self._combo_global_bt)
+
+        toolbar.addSeparator()
+
+        # Grid opacity slider
+        toolbar.addWidget(QLabel("  Grid: "))
+        self._grid_slider = QSlider(Qt.Orientation.Horizontal)
+        self._grid_slider.setRange(0, 100)
+        self._grid_slider.setValue(70)
+        self._grid_slider.setFixedWidth(100)
+        self._grid_slider.setToolTip("Grid opacity")
+        self._grid_slider.valueChanged.connect(
+            lambda v: self.scene.setGridOpacity(v / 100.0)
+        )
+        toolbar.addWidget(self._grid_slider)
+
+        toolbar.addSeparator()
+
+        # Align buttons
+        self._btn_align_h = QToolButton()
+        self._btn_align_h.setText("\u21d4")
+        self._btn_align_h.setToolTip("Align selected nodes: left edges")
+        self._btn_align_h.setEnabled(False)
+        self._btn_align_h.clicked.connect(self._onAlignLeft)
+        toolbar.addWidget(self._btn_align_h)
+
+        self._btn_align_v = QToolButton()
+        self._btn_align_v.setText("\u21d5")
+        self._btn_align_v.setToolTip("Align selected nodes: top edges")
+        self._btn_align_v.setEnabled(False)
+        self._btn_align_v.clicked.connect(self._onAlignTop)
+        toolbar.addWidget(self._btn_align_v)
+
+        self._btn_snap = QToolButton()
+        self._btn_snap.setText("\u229e")
+        self._btn_snap.setToolTip("Snap selected nodes to grid")
+        self._btn_snap.setEnabled(False)
+        self._btn_snap.clicked.connect(self._onSnapToGrid)
+        toolbar.addWidget(self._btn_snap)
 
         self.addToolBar(Qt.ToolBarArea.TopToolBarArea, toolbar)
 
@@ -391,11 +430,33 @@ class NodeEditorWindow(QMainWindow):
 
     def _onSettings(self):
         current_style = QApplication.style().objectName()
-        dlg = SettingsDialog(current_style, self.scene.gridOpacity(), self.scene.linkColor(), self)
+        from .theme import ThemeRegistry
+        dlg = SettingsDialog(
+            current_style,
+            self.scene.gridOpacity(),
+            self.scene.linkColor(),
+            ThemeRegistry.current_theme_name(),
+            self,
+        )
         if dlg.exec():
-            style_name, opacity, link_color = dlg.getValues()
-            QApplication.setStyle(style_name)
+            style_name, opacity, link_color, theme_name, custom_qss_path = dlg.getValues()
+            if custom_qss_path:
+                ThemeRegistry.load_external_qss(custom_qss_path, QApplication.instance())
+                self.ctx.settings.setValue("theme_name", "")
+                self.ctx.settings.setValue("custom_qss_path", custom_qss_path)
+            elif theme_name:
+                ThemeRegistry.apply(theme_name, QApplication.instance(), self.scene)
+                self.ctx.settings.setValue("theme_name", theme_name)
+                self.ctx.settings.setValue("custom_qss_path", "")
+            else:
+                QApplication.setStyle(style_name)
+                QApplication.instance().setStyleSheet(
+                    QApplication.instance().styleSheet()
+                )
             self.scene.setGridOpacity(opacity)
+            self._grid_slider.blockSignals(True)
+            self._grid_slider.setValue(int(opacity * 100))
+            self._grid_slider.blockSignals(False)
             self.scene.setLinkColor(link_color)
 
     def _onShowPathVariables(self):
@@ -408,15 +469,28 @@ class NodeEditorWindow(QMainWindow):
 
     def _loadSettings(self):
         s = self.ctx.settings
-        style = s.value("style", "")
+        style = s.value("style", "Fusion")
         if style:
             QApplication.setStyle(style)
         opacity = s.value("grid_opacity", None)
         if opacity is not None:
-            self.scene.setGridOpacity(float(opacity))
+            v = float(opacity)
+            self.scene.setGridOpacity(v)
+            self._grid_slider.blockSignals(True)
+            self._grid_slider.setValue(int(v * 100))
+            self._grid_slider.blockSignals(False)
         link = s.value("link_color", None)
         if link is not None:
             self.scene.setLinkColor(QColor(link))
+        # theme
+        theme_name = s.value("theme_name", "")
+        custom_qss = s.value("custom_qss_path", "")
+        if custom_qss and os.path.isfile(custom_qss):
+            from .theme import ThemeRegistry
+            ThemeRegistry.load_external_qss(custom_qss, QApplication.instance())
+        elif theme_name:
+            from .theme import ThemeRegistry
+            ThemeRegistry.apply(theme_name, QApplication.instance(), self.scene)
         geo = s.value("geometry")
         if geo:
             self.restoreGeometry(geo)
@@ -499,15 +573,15 @@ class NodeEditorWindow(QMainWindow):
             self.current_node = None
 
     def _onSceneSelectionChanged(self):
-        sel = self.scene.selectedItems()
-        if sel and isinstance(sel[0], NodeItem):
-            self.current_node = sel[0]
-            self._registry.set_enabled("edit.remove_node", True)
-            self._registry.set_enabled("edit.edit_node", True)
-        else:
-            self.current_node = None
-            self._registry.set_enabled("edit.remove_node", False)
-            self._registry.set_enabled("edit.edit_node", False)
+        sel = [it for it in self.scene.selectedItems() if isinstance(it, NodeItem)]
+        node_count = len(sel)
+        self.current_node = sel[0] if sel else None
+        self._registry.set_enabled("edit.remove_node", node_count > 0)
+        self._registry.set_enabled("edit.edit_node", node_count > 0)
+        # toolbar align/snap buttons
+        self._btn_align_h.setEnabled(node_count >= 2)
+        self._btn_align_v.setEnabled(node_count >= 2)
+        self._btn_snap.setEnabled(node_count >= 1)
 
     def openNodePropertyDialog(self, node: NodeItem | None) -> None:
         if not node:
@@ -521,6 +595,46 @@ class NodeEditorWindow(QMainWindow):
         if dlg.exec() == dlg.DialogCode.Accepted:
             if dlg.applyToNodes():
                 self.updateTopologyView()
+
+    # ----------------------------------------------------------------
+    # Alignment & snap-to-grid
+    # ----------------------------------------------------------------
+
+    def _selectedNodes(self) -> list[NodeItem]:
+        return [it for it in self.scene.selectedItems() if isinstance(it, NodeItem)]
+
+    def _onAlignLeft(self):
+        from .undo_commands import MoveNodesCommand
+        nodes = self._selectedNodes()
+        if len(nodes) < 2:
+            return
+        target_x = min(n.pos().x() for n in nodes)
+        old_new = {n: (n.pos(), QPointF(target_x, n.pos().y())) for n in nodes}
+        cmd = MoveNodesCommand(old_new, "Align Left")
+        self._undo_stack.push(cmd)
+
+    def _onAlignTop(self):
+        from .undo_commands import MoveNodesCommand
+        nodes = self._selectedNodes()
+        if len(nodes) < 2:
+            return
+        target_y = min(n.pos().y() for n in nodes)
+        old_new = {n: (n.pos(), QPointF(n.pos().x(), target_y)) for n in nodes}
+        cmd = MoveNodesCommand(old_new, "Align Top")
+        self._undo_stack.push(cmd)
+
+    def _onSnapToGrid(self):
+        from .undo_commands import MoveNodesCommand
+        nodes = self._selectedNodes()
+        if not nodes:
+            return
+        def snap(v): return round(v / GRID_SIZE) * GRID_SIZE
+        old_new = {
+            n: (n.pos(), QPointF(snap(n.pos().x()), snap(n.pos().y())))
+            for n in nodes
+        }
+        cmd = MoveNodesCommand(old_new, "Snap to Grid")
+        self._undo_stack.push(cmd)
 
     # ----------------------------------------------------------------
     # Partial stage helpers
