@@ -90,6 +90,7 @@ class NodeView(QGraphicsView):
             act_cfg_node = menu.addAction("Configure Node")
             act_build_node = menu.addAction("Build Node")
             act_install_node = menu.addAction("Install Node")
+            act_generate_node = menu.addAction("Generate Node")
             menu.addSeparator()
             act_cfg_from = menu.addAction("Configure From This")
             act_build_from = menu.addAction("Build From This")
@@ -132,6 +133,8 @@ class NodeView(QGraphicsView):
                     ctx.buildRequested.emit("build", {"start_node_id": item.id(), "only_first": True})
                 elif action == act_install_node:
                     ctx.buildRequested.emit("install", {"start_node_id": item.id(), "only_first": True})
+                elif action == act_generate_node:
+                    ctx.generateRequested.emit({"start_node_id": item.id(), "only_first": True})
                 elif action == act_cfg_from:
                     ctx.buildRequested.emit("configure", {"start_node_id": item.id()})
                 elif action == act_build_from:

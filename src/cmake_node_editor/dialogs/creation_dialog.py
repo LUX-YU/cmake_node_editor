@@ -29,7 +29,8 @@ from ..services.build_strategies import (
 _ALL_BS_FIELDS: list[tuple[str, str]] = [
     ("build_dir", "Build Directory"),
     ("install_dir", "Install Directory"),
-    ("prefix_path", "PREFIX_PATH"),
+    ("build_type", "Build Type"),
+    ("prefix_path", "Prefix Path"),
     ("toolchain_file", "Toolchain File"),
     ("generator", "Generator"),
     ("c_compiler", "C Compiler"),
@@ -149,7 +150,7 @@ class NodeCreationDialog(QDialog):
             self._bs_layout.addWidget(cb)
         self._copy_layout.addWidget(self.bs_group)
 
-        self.copy_group.setEnabled(False)
+        self.copy_group.setVisible(False)
         form.addRow(self.copy_group)
 
         # ── OK / Cancel ──
@@ -220,7 +221,12 @@ class NodeCreationDialog(QDialog):
             cb.setVisible(key in relevant)
 
     def _onInheritChanged(self, index: int):
-        self.copy_group.setEnabled(index > 0)
+        visible = index > 0
+        self.copy_group.setVisible(visible)
+        if visible:
+            for cb in self._bs_cbs.values():
+                if cb.isVisible():
+                    cb.setChecked(True)
 
     def _onProjectPathChanged(self, text: str):
         if self._name_manually_set:
