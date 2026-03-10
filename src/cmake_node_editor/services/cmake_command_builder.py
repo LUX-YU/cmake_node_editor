@@ -17,18 +17,13 @@ be used interchangeably.
 from __future__ import annotations
 
 import os
-import re
 
 from ..models.data_classes import (
     ProjectCommands, NodeCommands, CommandData, NodeData, BuildSettings,
     CustomCommands,
 )
 from .build_strategies import get_strategy
-
-
-def _sanitize_name(name: str) -> str:
-    """Remove characters unsafe for filesystem paths."""
-    return re.sub(r'[^\w\-.]', '_', name)
+from .path_resolver import make_path_context, validate_template, resolve_path
 
 
 class NodeProxy:
@@ -121,19 +116,27 @@ def build_project_commands(
 
     for node_obj in nodes_slice:
         bs = node_obj.buildSettings()
-        build_type = build_type_override or bs.build_type
-        project_name = node_obj.title()
-        safe_project_name = _sanitize_name(project_name)
         project_dir = node_obj.projectPath()
+        ctx = make_path_context(node_obj, build_type_override)
+
+        # Validate templates before resolving
+        for attr, template in [
+            ("build_dir", bs.build_dir),
+            ("install_dir", bs.install_dir),
+            ("prefix_path", bs.prefix_path),
+        ]:
+            unknown = validate_template(template, ctx)
+            if unknown:
+                return (
+                    f"Node '{node_obj.title()}': unknown variable(s) "
+                    f"in {attr}: {{{', '.join(unknown)}}}"
+                )
 
         # Resolve path templates
-        node_build_dir = os.path.join(
-            bs.build_dir.format(build_type=build_type), safe_project_name,
-        )
-        node_install_dir = bs.install_dir.format(build_type=build_type)
-        node_prefix_path = (
-            bs.prefix_path.format(build_type=build_type) if bs.prefix_path else ""
-        )
+        node_build_dir = resolve_path(bs.build_dir, ctx)
+        node_install_dir = resolve_path(bs.install_dir, ctx)
+        node_prefix_path = resolve_path(bs.prefix_path, ctx) if bs.prefix_path else ""
+        build_type = ctx.as_dict()["build_type"]
 
         # Delegate to the appropriate strategy
         strategy = get_strategy(node_obj.buildSystem())

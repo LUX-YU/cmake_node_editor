@@ -19,6 +19,7 @@ from ..models.data_classes import (
 )
 from ..scene.serialization import load_project
 from .cmake_command_builder import NodeProxy, build_project_commands
+from .path_resolver import make_path_context, resolve_path
 
 
 # ---------------------------------------------------------------------------
@@ -85,8 +86,10 @@ def project_info(filepath: str) -> str:
     lines.append("-" * 60)
     for i, nd in enumerate(sorted_nodes):
         bs = nd.build_settings
-        resolved_install = bs.install_dir.format(build_type=bs.build_type)
-        resolved_prefix = bs.prefix_path.format(build_type=bs.build_type) if bs.prefix_path else ""
+        _proxy_nd = NodeProxy(nd)
+        _pctx = make_path_context(_proxy_nd)
+        resolved_install = resolve_path(bs.install_dir, _pctx)
+        resolved_prefix = resolve_path(bs.prefix_path, _pctx) if bs.prefix_path else ""
         lines.append(f"  {i+1}. [{nd.node_id}] {nd.title}")
         lines.append(f"       project_path  : {nd.project_path}")
         lines.append(f"       build_dir     : {bs.build_dir}")

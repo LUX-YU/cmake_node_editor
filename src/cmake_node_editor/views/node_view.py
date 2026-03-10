@@ -7,7 +7,6 @@ Extracted from the monolithic ``node_editor_window.py``.
 from __future__ import annotations
 
 import os
-import re
 import subprocess
 
 from PyQt6.QtCore import Qt, QPointF, pyqtSignal
@@ -17,6 +16,7 @@ from PyQt6.QtWidgets import QGraphicsView, QMenu, QMessageBox
 from ..views.graphics_items import NodeItem, Edge
 from ..constants import ZOOM_SCALE_FACTOR
 from ..services.editor_detection import detect_editors
+from ..services.path_resolver import make_path_context, resolve_path
 
 
 class NodeView(QGraphicsView):
@@ -220,16 +220,15 @@ class NodeView(QGraphicsView):
 
     @staticmethod
     def _resolveNodeBuildDir(node: NodeItem, ctx) -> str:
-        bs = node.buildSettings()
-        build_type = ctx.global_build_type if ctx else bs.build_type
-        safe_name = re.sub(r"[^\w\-.]", "_", node.title())
-        return os.path.join(bs.build_dir.format(build_type=build_type), safe_name)
+        build_type_override = ctx.global_build_type if ctx else None
+        path_ctx = make_path_context(node, build_type_override)
+        return resolve_path(node.buildSettings().build_dir, path_ctx)
 
     @staticmethod
     def _resolveNodeInstallDir(node: NodeItem, ctx) -> str:
-        bs = node.buildSettings()
-        build_type = ctx.global_build_type if ctx else bs.build_type
-        return bs.install_dir.format(build_type=build_type)
+        build_type_override = ctx.global_build_type if ctx else None
+        path_ctx = make_path_context(node, build_type_override)
+        return resolve_path(node.buildSettings().install_dir, path_ctx)
 
     # -- Delete key --
 

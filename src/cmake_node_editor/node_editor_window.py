@@ -34,6 +34,7 @@ from .dialogs.settings_dialog import SettingsDialog
 from .dialogs.node_properties_dialog import NodePropertiesDialog
 from .dialogs.batch_edit_dialog import BatchEditDialog
 from .dialogs.node_range_dialog import NodeRangeDialog
+from .dialogs.path_variables_dialog import PathVariablesDialog
 from .constants import WINDOW_WIDTH, WINDOW_HEIGHT, WINDOW_TITLE, BUILD_TYPES
 
 
@@ -150,9 +151,23 @@ class NodeEditorWindow(QMainWindow):
 
     def _applyGlobalCfg(self, global_cfg: dict):
         """Apply ``global`` section from a loaded project JSON."""
-        from .constants import DEFAULT_BUILD_TYPE
+        from .constants import DEFAULT_BUILD_TYPE, SAVE_FORMAT_VERSION
         self.ctx.global_build_type = global_cfg.get("build_type") or DEFAULT_BUILD_TYPE
         self._syncBuildTypeCombo()
+
+        migrated_from = global_cfg.pop("_migrated_from", None)
+        if migrated_from is not None:
+            reply = QMessageBox.question(
+                self,
+                "Project Format Updated",
+                f"This project was saved in an older format (v{migrated_from}) and has "
+                f"been automatically migrated to v{SAVE_FORMAT_VERSION}.\n\n"
+                "Would you like to save now to keep the changes?",
+                QMessageBox.StandardButton.Save | QMessageBox.StandardButton.Discard,
+                QMessageBox.StandardButton.Save,
+            )
+            if reply == QMessageBox.StandardButton.Save:
+                self._onQuickSave()
 
     # ----------------------------------------------------------------
     # Action registration (replaces hard-coded _initMenu)
@@ -218,6 +233,10 @@ class NodeEditorWindow(QMainWindow):
         r.register("windows.node_inspector", "Node Inspector", "Windows",
                     lambda checked: self.dock_topology.setVisible(checked),
                     checkable=True, checked=True, order=20)
+
+        # -- Help --
+        r.register("help.path_variables", "Path Variables...", "Help",
+                    self._onShowPathVariables, order=10)
 
     # ----------------------------------------------------------------
     # Signal wiring
@@ -378,6 +397,10 @@ class NodeEditorWindow(QMainWindow):
             QApplication.setStyle(style_name)
             self.scene.setGridOpacity(opacity)
             self.scene.setLinkColor(link_color)
+
+    def _onShowPathVariables(self):
+        dlg = PathVariablesDialog(node_item=self.current_node, parent=self)
+        dlg.exec()
 
     # ----------------------------------------------------------------
     # QSettings persistence

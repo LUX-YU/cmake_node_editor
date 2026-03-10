@@ -35,9 +35,14 @@ WINDOW_HEIGHT = 900
 WINDOW_TITLE = "QNode Editor for cmake projects"
 
 # ---------------------------------------------------------------------------
+# Serialization
+# ---------------------------------------------------------------------------
+SAVE_FORMAT_VERSION: int = 2
+
+# ---------------------------------------------------------------------------
 # CMake defaults
 # ---------------------------------------------------------------------------
-DEFAULT_BUILD_DIR = "build/{build_type}"
+DEFAULT_BUILD_DIR = "build/{build_type}/{project_name}"
 DEFAULT_INSTALL_DIR = "install/{build_type}"
 DEFAULT_BUILD_TYPE = "Debug"
 

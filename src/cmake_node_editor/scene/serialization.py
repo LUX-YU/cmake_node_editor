@@ -10,7 +10,7 @@ from dataclasses import asdict
 from typing import TYPE_CHECKING
 
 from ..models.data_classes import NodeData, BuildSettings, CustomCommands
-from ..constants import DEFAULT_BUILD_DIR, DEFAULT_INSTALL_DIR, DEFAULT_BUILD_TYPE
+from ..constants import DEFAULT_BUILD_DIR, DEFAULT_INSTALL_DIR, DEFAULT_BUILD_TYPE, SAVE_FORMAT_VERSION
 
 if TYPE_CHECKING:
     from ..views.graphics_items import NodeItem, Edge
@@ -33,6 +33,7 @@ def save_project(
     if global_build_type:
         global_section["build_type"] = global_build_type
     data = {
+        "version": SAVE_FORMAT_VERSION,
         "global": global_section,
         "nodes": [asdict(node.nodeData()) for node in nodes],
         "edges": [asdict(edge.edgeData()) for edge in edges],
@@ -59,6 +60,13 @@ def load_project(filepath: str) -> tuple[dict, list[NodeData], list[dict]]:
         data = json.load(f)
 
     global_cfg = data.get("global", {})
+
+    # -- Migration --
+    file_version = data.get("version", 1)
+    if file_version < SAVE_FORMAT_VERSION:
+        data = _migrate(data, file_version)
+        global_cfg = data.get("global", {})
+        global_cfg["_migrated_from"] = file_version
 
     node_data_list: list[NodeData] = []
     for nd in data.get("nodes", []):
@@ -94,3 +102,37 @@ def load_project(filepath: str) -> tuple[dict, list[NodeData], list[dict]]:
 
     edge_dicts = data.get("edges", [])
     return global_cfg, node_data_list, edge_dicts
+
+
+# ---------------------------------------------------------------------------
+# Migration helpers
+# ---------------------------------------------------------------------------
+
+def _migrate(data: dict, from_version: int) -> dict:
+    """Apply all required migrations from *from_version* up to the current version.
+
+    Each step is a pure function that takes and returns the raw JSON dict.
+    """
+    import copy
+    data = copy.deepcopy(data)
+    if from_version < 2:
+        data = _migrate_v1_to_v2(data)
+    # Future: if from_version < 3: data = _migrate_v2_to_v3(data)
+    return data
+
+
+def _migrate_v1_to_v2(data: dict) -> dict:
+    """v1 → v2: ``build_dir`` paths gain an explicit ``{project_name}`` segment.
+
+    In v1 the application always appended the node title to the build
+    directory at runtime.  In v2 this is expressed explicitly in the
+    path template so users can see and customise it.  Migration appends
+    ``/{project_name}`` to any ``build_dir`` value that does not already
+    contain ``{project_name}``.
+    """
+    for node in data.get("nodes", []):
+        bs = node.get("build_settings", {})
+        build_dir: str = bs.get("build_dir", "")
+        if "{project_name}" not in build_dir:
+            bs["build_dir"] = build_dir.rstrip("/").rstrip("\\") + "/{project_name}"
+    return data

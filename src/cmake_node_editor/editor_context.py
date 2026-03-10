@@ -62,7 +62,7 @@ class EditorContext(QObject):
         super().__init__(parent)
 
         self.undo_stack = QUndoStack(self)
-        self.scene = NodeScene()
+        self.scene = NodeScene(self)       # parent=self keeps C++ object alive
         self.scene.setContext(self)               # back-reference
         self.worker = WorkerManager()
         self.settings = QSettings("CMakeNodeEditor", "CMakeNodeEditor")

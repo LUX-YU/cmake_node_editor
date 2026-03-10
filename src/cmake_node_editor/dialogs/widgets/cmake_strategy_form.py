@@ -27,12 +27,14 @@ class CMakeStrategyForm(QWidget):
 
         layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(0)
 
         self.cmake_options_editor = CMakeOptionsEditor()
         layout.addWidget(self.cmake_options_editor)
 
         self.build_settings_form = BuildSettingsForm()
         layout.addWidget(self.build_settings_form)
+        layout.addStretch(1)
 
     # ------------------------------------------------------------------
     # Protocol: load_from_node / apply_to_node
