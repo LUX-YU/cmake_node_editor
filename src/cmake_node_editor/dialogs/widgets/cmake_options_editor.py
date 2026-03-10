@@ -6,9 +6,16 @@ simple ``get_options`` / ``set_options`` helpers so that host dialogs do not
 need to manage individual row widgets.
 """
 
+from PyQt6.QtCore import Qt
 from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLineEdit, QPushButton, QScrollArea,
+    QSizePolicy,
 )
+
+_ROW_HEIGHT = 32   # approximate height per option row (px)
+_BTN_HEIGHT = 34   # approximate height of the Add button row (px)
+_SPACING    = 4    # layout spacing between rows
+_MAX_HEIGHT = 180  # cap scroll area height at this many px
 
 
 class CMakeOptionsEditor(QWidget):
@@ -20,25 +27,46 @@ class CMakeOptionsEditor(QWidget):
 
         self._layout = QVBoxLayout(self)
         self._layout.setContentsMargins(0, 0, 0, 0)
+        self._layout.setSpacing(4)
 
-        # Internal container so QScrollArea can wrap it
+        # Container with top-aligned layout so rows don't spread vertically
         self._options_layout = QVBoxLayout()
+        self._options_layout.setContentsMargins(4, 4, 4, 4)
+        self._options_layout.setSpacing(_SPACING)
+        self._options_layout.setAlignment(Qt.AlignmentFlag.AlignTop)
 
-        # "Add" button
+        self._container = QWidget()
+        self._container.setLayout(self._options_layout)
+
+        self._scroll = QScrollArea()
+        self._scroll.setWidgetResizable(True)
+        self._scroll.setWidget(self._container)
+        self._scroll.setSizePolicy(
+            QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed
+        )
+        self._layout.addWidget(self._scroll)
+
+        # "Add" button — lives OUTSIDE the scroll area so it's always visible
         btn_row = QHBoxLayout()
+        btn_row.setContentsMargins(4, 0, 4, 0)
         self._btn_add = QPushButton("Add CMake Option")
         self._btn_add.clicked.connect(lambda: self.add_option())
         btn_row.addWidget(self._btn_add)
-        self._options_layout.addLayout(btn_row)
+        btn_row.addStretch()
+        self._layout.addLayout(btn_row)
 
-        container = QWidget()
-        container.setLayout(self._options_layout)
+        self._updateScrollHeight()
 
-        scroll = QScrollArea()
-        scroll.setWidgetResizable(True)
-        scroll.setWidget(container)
-        scroll.setMinimumHeight(150)
-        self._layout.addWidget(scroll)
+    # ------------------------------------------------------------------
+    # Height management
+    # ------------------------------------------------------------------
+
+    def _updateScrollHeight(self) -> None:
+        """Set scroll area to the exact content height (capped at _MAX_HEIGHT)."""
+        n = len(self._rows)
+        content_h = (n * (_ROW_HEIGHT + _SPACING)
+                     + 8)   # container margins top+bottom
+        self._scroll.setFixedHeight(min(max(content_h, 8), _MAX_HEIGHT))
 
     # ------------------------------------------------------------------
     # Public API
@@ -58,8 +86,8 @@ class CMakeOptionsEditor(QWidget):
         btn_delete.clicked.connect(lambda: self._remove_row(row_widget))
 
         self._rows.append((row_widget, line_edit))
-        # Insert before the "Add" button row
-        self._options_layout.insertWidget(self._options_layout.count() - 1, row_widget)
+        self._options_layout.addWidget(row_widget)
+        self._updateScrollHeight()
 
     def get_options(self) -> list[str]:
         """Return the current list of non-empty, validated option strings."""
@@ -107,3 +135,4 @@ class CMakeOptionsEditor(QWidget):
                 rw.deleteLater()
                 self._rows.pop(i)
                 break
+        self._updateScrollHeight()

@@ -15,6 +15,10 @@ from ...models.data_classes import BuildSettings
 from ...constants import (
     DEFAULT_BUILD_DIR, DEFAULT_INSTALL_DIR, DEFAULT_BUILD_TYPE, GENERATORS,
 )
+from ...services.path_resolver import VARIABLE_REGISTRY, validate_template, PathContext
+
+_HINT_STYLE_OK = ""
+_HINT_STYLE_ERR = "border: 1px solid red;"
 
 
 class BuildSettingsForm(QWidget):
@@ -27,6 +31,13 @@ class BuildSettingsForm(QWidget):
         form = QFormLayout(self)
         form.setContentsMargins(0, 0, 0, 0)
 
+        # Available-variable hint (derived from registry, always in sync)
+        vars_hint = ", ".join(f"{{{k}}}" for k in VARIABLE_REGISTRY)
+        hint_label = QLabel(f"Available variables: {vars_hint}")
+        hint_label.setStyleSheet("color: gray; font-size: 10px;")
+        hint_label.setWordWrap(True)
+        form.addRow("", hint_label)
+
         self.edit_build_dir = QLineEdit(DEFAULT_BUILD_DIR)
         form.addRow("Build Directory:", self.edit_build_dir)
 
@@ -34,7 +45,7 @@ class BuildSettingsForm(QWidget):
         form.addRow("Install Directory:", self.edit_install_dir)
 
         self.edit_prefix_path = QLineEdit(DEFAULT_INSTALL_DIR)
-        form.addRow("PREFIX_PATH:", self.edit_prefix_path)
+        form.addRow("Prefix Path:", self.edit_prefix_path)
 
         self.edit_toolchain = QLineEdit()
         form.addRow("Toolchain File:", self.edit_toolchain)
@@ -48,6 +59,18 @@ class BuildSettingsForm(QWidget):
 
         self.edit_cxx_compiler = QLineEdit()
         form.addRow("C++ Compiler:", self.edit_cxx_compiler)
+
+        # Wire validation to path fields
+        _dummy_ctx = PathContext(**{k: "x" for k in VARIABLE_REGISTRY})
+        for field in (self.edit_build_dir, self.edit_install_dir, self.edit_prefix_path):
+            field.textChanged.connect(
+                lambda text, f=field, c=_dummy_ctx: self._validatePathField(f, c)
+            )
+
+    @staticmethod
+    def _validatePathField(field: QLineEdit, ctx: PathContext) -> None:
+        unknown = validate_template(field.text(), ctx)
+        field.setStyleSheet(_HINT_STYLE_ERR if unknown else _HINT_STYLE_OK)
 
     # ------------------------------------------------------------------
     # Public API
