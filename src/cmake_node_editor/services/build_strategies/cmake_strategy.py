@@ -10,6 +10,7 @@ from typing import TYPE_CHECKING, Any
 
 from .base import BuildStrategy
 from ...models.data_classes import CommandData
+from ..path_resolver import make_path_context, resolve_path
 
 if TYPE_CHECKING:
     from ...views.graphics_items import NodeItem
@@ -127,7 +128,9 @@ class CMakeStrategy(BuildStrategy):
         if bs.cxx_compiler:
             cmd_configure.append(f"-DCMAKE_CXX_COMPILER:FILEPATH={bs.cxx_compiler}")
         if bs.toolchain_file:
-            cmd_configure.append(f"-DCMAKE_TOOLCHAIN_FILE={bs.toolchain_file}")
+            ctx = make_path_context(node, build_type)
+            resolved_toolchain = resolve_path(bs.toolchain_file, ctx)
+            cmd_configure.append(f"-DCMAKE_TOOLCHAIN_FILE={resolved_toolchain}")
         if prefix_path:
             cmd_configure.append(f"-DCMAKE_PREFIX_PATH={prefix_path}")
         for opt in node.cmakeOptions():
